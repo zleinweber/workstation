@@ -41,6 +41,40 @@ The project uses Rust 2024, with Rust 1.85 as the minimum supported version.
 and the minimum version on Linux and macOS. Cargo.lock is committed for the CLI.
 There are no runtime dependencies at the scaffold stage.
 
+### Codespaces and devcontainers
+
+On GitHub, select the branch you want to develop, then choose **Code → Codespaces
+→ Create codespace**. For this initial PR, select `initialization`; after it is
+merged, use `main`. The [devcontainer configuration](.devcontainer/devcontainer.json)
+also works locally with Docker and VS Code's Dev Containers extension: choose
+**Dev Containers: Reopen in Container**.
+
+The container supplies Rust and native build tools, runs as the non-root `vscode`
+user, and installs Rust Analyzer and EditorConfig editor support. On creation,
+it updates stable Rust and builds `wstn` with the committed lockfile. The repository's
+`rust-toolchain.toml` supplies rustfmt and Clippy. Rust files format on save, and
+Rust Analyzer uses Clippy for diagnostics.
+
+In the container terminal, run:
+
+```sh
+cargo run --locked -- --help
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked --all-targets
+```
+
+To also check the minimum supported compiler, as CI does:
+
+```sh
+rustup toolchain install 1.85.0 --profile minimal
+cargo +1.85.0 build --locked
+cargo +1.85.0 test --locked --all-targets
+```
+
+The container is a Linux development environment; macOS coverage remains in CI.
+It does not apply a dotfiles recipe or configure the host machine.
+
 ## Project documents
 
 - [Design](docs/design.md): scope, configuration, action semantics, architecture,

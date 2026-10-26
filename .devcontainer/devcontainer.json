@@ -1,0 +1,21 @@
+{
+    "name": "Workstation Rust development",
+    "image": "mcr.microsoft.com/devcontainers/rust:1-1-bookworm",
+    "remoteUser": "vscode",
+    "postCreateCommand": "rustup update stable --no-self-update && cargo build --locked",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "rust-lang.rust-analyzer",
+                "EditorConfig.EditorConfig"
+            ],
+            "settings": {
+                "[rust]": {
+                    "editor.defaultFormatter": "rust-lang.rust-analyzer",
+                    "editor.formatOnSave": true
+                },
+                "rust-analyzer.check.command": "clippy"
+            }
+        }
+    }
+}
