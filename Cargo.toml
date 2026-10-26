@@ -1,0 +1,22 @@
+[package]
+name = "workstation"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A recipe-driven dotfiles manager with basic configuration management"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "wstn"
+path = "src/main.rs"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"
+
+[profile.release]
+lto = "thin"
+strip = true
