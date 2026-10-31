@@ -49,8 +49,11 @@ merged, use `main`. The [devcontainer configuration](.devcontainer/devcontainer.
 also works locally with Docker and VS Code's Dev Containers extension: choose
 **Dev Containers: Reopen in Container**.
 
-The container supplies Rust and native build tools, runs as the non-root `vscode`
-user, and installs Rust Analyzer and EditorConfig editor support. On creation,
+The container uses Ubuntu 26.04 LTS (Resolute) with APT, plus the standard Rust
+and SSH server devcontainer features. It supplies Rust and native build tools,
+runs as the non-root `vscode` user, and includes Rust Analyzer and EditorConfig
+editor support. The Rust feature also supplies CodeLLDB and Even Better TOML
+extensions, along with the `rust-analyzer` server and Rust sources. On creation,
 it updates stable Rust and builds `wstn` with the committed lockfile. The repository's
 `rust-toolchain.toml` supplies rustfmt and Clippy. Rust files format on save, and
 Rust Analyzer uses Clippy for diagnostics.
@@ -93,10 +96,10 @@ Container** from the VS Code command palette to install the SSH feature. Refresh
 any locally generated Codespaces SSH configuration after rebuilding.
 
 Neovim and personal editor configuration are not installed by this project;
-install them separately or use your Codespaces dotfiles setup. If using Rust LSP
-support in Neovim, install the server with `rustup component add rust-analyzer`
-and configure your Neovim LSP client to use it. The VS Code Rust Analyzer extension
-is separate from a server executable available to terminal editors.
+install them separately or use your Codespaces dotfiles setup. For Rust LSP
+support in Neovim, configure your LSP client to use the `rust-analyzer` executable
+installed by the Rust feature. If it is missing after changing toolchains, run
+`rustup component add rust-analyzer`.
 
 ## Project documents
 

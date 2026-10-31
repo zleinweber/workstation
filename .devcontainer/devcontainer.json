@@ -1,8 +1,9 @@
 {
     "name": "Workstation Rust development",
-    "image": "mcr.microsoft.com/devcontainers/rust:1-1-bookworm",
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu26.04",
     "remoteUser": "vscode",
     "features": {
+        "ghcr.io/devcontainers/features/rust:1": {},
         "ghcr.io/devcontainers/features/sshd:1": {}
     },
     "postCreateCommand": "rustup update stable --no-self-update && cargo build --locked",
