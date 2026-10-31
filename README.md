@@ -75,6 +75,29 @@ cargo +1.85.0 test --locked --all-targets
 The container is a Linux development environment; macOS coverage remains in CI.
 It does not apply a dotfiles recipe or configure the host machine.
 
+### SSH and terminal editors
+
+The devcontainer includes the standard SSH server feature so you can work in a
+terminal editor through the GitHub CLI:
+
+```sh
+gh codespace ssh --codespace <codespace-name>
+```
+
+GitHub handles the SSH connection setup; this workflow does not require a public
+SSH port or a manually configured password. It also supports workflows based on
+`gh codespace ssh --config` and an SSH client such as `kitten ssh`.
+
+For an existing Codespace, pull the updated branch and run **Codespaces: Rebuild
+Container** from the VS Code command palette to install the SSH feature. Refresh
+any locally generated Codespaces SSH configuration after rebuilding.
+
+Neovim and personal editor configuration are not installed by this project;
+install them separately or use your Codespaces dotfiles setup. If using Rust LSP
+support in Neovim, install the server with `rustup component add rust-analyzer`
+and configure your Neovim LSP client to use it. The VS Code Rust Analyzer extension
+is separate from a server executable available to terminal editors.
+
 ## Project documents
 
 - [Design](docs/design.md): scope, configuration, action semantics, architecture,
