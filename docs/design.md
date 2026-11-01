@@ -1,68 +1,54 @@
 # Workstation design
 
-Status: initial proposal. This document describes intended behavior; the initial
-repository contains only the Rust scaffold. Decisions can change before version 1.
+Status: proposal. Only the Rust scaffold exists; the behavior below is planned.
 
-## Purpose
+## Purpose and scope
 
-Create a standalone binary executable that implements a basic configuration
-management system designed make it easy to repeatably setup Linux and
-Mac workstations.
+Workstation is a standalone Rust executable for repeatable Linux and macOS
+workstation setup. It applies YAML recipes to a local dotfiles directory, keeping
+personal configuration and installers separate from the reusable engine.
 
-The binary exposes a framework that users can leverage while their actual
-configuration files live in their own dotfiles repository.
+Version 1 provides file symlinks, verified downloads, and script execution, with
+predictable reruns, useful errors, and previews that never execute recipe code.
+Application-specific work, including package management, belongs in user scripts.
 
-## Scope
+Deferred: Windows, remote provisioning, templates, secrets storage, package-manager
+adapters, archives, plugins, parallel execution, upstream version discovery,
+general rollback, and recipe composition.
 
-The first release supports Linux and macOS, local dotfiles repositories, YAML
-recipes, package-based symlinks, direct file downloads, and executable scripts.
-Its core promises are understandable configuration, predictable reruns, useful
-errors, and a preview that does not execute recipe code.
+## Terminology and repository layout
 
-Windows, remote machine provisioning, templates, secrets storage, package-manager
-abstractions, archive extraction, a plugin ABI, parallel execution, automatic
-upstream version discovery, and general rollback are deferred. Existing scripts
-can perform application-specific work, including package-manager operations.
+- **Workstation** (`workstation`): the project and Cargo package.
+- **`wstn`**: the command-line executable, pronounced “workstation.”
+- **Dotfiles directory**: user-owned input, defaulting to `~/.dotfiles`. Git is
+  optional; cloning and updates are the user's responsibility.
+- **Recipe**: a named YAML file containing ordered setup actions.
+- **Bundle**: configuration files whose directory structure is mirrored into a
+  target directory using symlinks.
+- **Script**: a user-owned program invoked by a recipe.
 
-## Terminology
-
-- `worktation` - The configuration and dotfiles management system and project name
-- `wstn` - The command line tool (also just pronounced "workstation")
-- `dotfiles` - A directory (usually revision controlled) that is passed as input into `wstn` (by default it will use `~/.dotfiles`). The framework has some expectations on components it expects to find here and layout.
-- `recipes` - YAML Defined configuration scenarios. Generally these live in `./recipes/` relative to the dotfiles root.
-- `bundles` - Named collections of configuration files that get mirrired into a users home directory via symlinks (think like stow). Generally these live in `./bundles/` relative to the dotfiles root (though today in my own dotfiels repository these live under `./stow`).
-- `scripts` - Arbitrary shell that workstation can call to set things up.
-
-## Repository boundary
-
-The framework repository owns the CLI, schema, generic actions, documentation,
-tests, and release tooling. A user's repository owns recipes, configuration files,
-installer scripts, package lists, and machine preferences.
-
-The input repository will look something like:
+The framework owns the CLI, schema, generic actions, tests, and release tooling.
+The dotfiles directory owns recipes, bundles, scripts, and machine preferences:
 
 ```text
 ~/.dotfiles/
-  recipes/ # Directory for user defined recipes
-    macos.yaml # User defined macos recipe
-    codespaces.yaml # User defined codespace recipe
-  bundles/ # Named configuration bundles 
-    zsh/.zshrc # "zsh" configuration bundle
-    nvim/.config/nvim/init.lua # "nvim" configuration bundle
-  scripts/ # Directory containing user defined scripts
+  recipes/
+    macos.yaml
+    codespaces.yaml
+  bundles/
+    zsh/.zshrc
+    nvim/.config/nvim/init.lua
+  scripts/
     install-tools.sh
   setup
-  wstn.toml # Optional workstation configuration
+  wstn.toml                  # Optional framework configuration
 ```
 
-In my existing dotfiles repo `stow/`. Ultimately, I expect the top level diretory
-names to be configurable. But, I'm proposing that we conventionally call this
-"bundles".
+`bundles/` is a convention. A link action names its repository-relative source,
+so existing `stow/` layouts still work. Configurable top-level directory names
+are intended; their configuration keys remain an open decision.
 
 ## CLI and configuration
-
-The project and Cargo package are named Workstation (`workstation`). The
-executable is `wstn`, with environment overrides prefixed `WSTN_`.
 
 ```sh
 wstn setup macos --repo ~/.dotfiles
@@ -70,44 +56,50 @@ wstn describe codespaces --repo ~/src/dotfiles
 wstn setup codespaces --dry-run
 ```
 
-Configuration for `wstn` itself will be via three mechanisms:
+Configuration precedence is CLI arguments, then `WSTN_` environment variables,
+then the dotfiles directory's optional `wstn.toml`, then built-in defaults.
+Resolve the repository first using `--repo`, `WSTN_REPO`, or `~/.dotfiles`, then
+read its configuration file. The file cannot select its own repository location.
+The recipe argument overrides `WSTN_RECIPE`; the TOML recipe key is still to be
+specified. If no recipe is selected, explain how to select one and list available
+recipes. Platform auto-selection belongs in the user's wrapper initially.
 
-1. Command line flags (e.g. `--repo`) - highest priority.
-2. Environment variables (e.g. `WSTN_REPO`) - second highest priority.
-3. The `wstn.toml` at the root of the dotfiles repo - lowest priority.
+| Command | Behavior |
+| --- | --- |
+| `describe` | Validate the recipe; print its description, ordered actions, conditions, and resolved paths. |
+| `setup --dry-run` | Also inspect local state and report planned operations and conflicts. |
+| `setup` | Apply actions sequentially and summarize the result. |
 
-`describe` parses and validates the selected recipe, then prints its description,
-ordered actions, conditions, and resolved paths. It performs no execution,
-downloads, credential prompts, or target writes. `setup --dry-run` additionally
-inspects local filesystem state and reports planned operations and conflicts.
-Scripts appear as opaque actions whose effects cannot be predicted. A preview
-must distinguish unknown future state from an actual conflict.
+Both previews avoid execution, downloads, credential prompts, and target writes.
+Scripts have unknown effects; previews must distinguish unknown future state from
+known conflicts.
 
-Use exit status 0 for success, 1 for execution failure, and 2 for invalid CLI or
-configuration. Write diagnostics to stderr and requested descriptions to stdout.
-Do not print environment values that may contain credentials.
+Exit codes: 0 for success, 1 for execution failure, 2 for invalid CLI or
+configuration. Send diagnostics to stderr and requested descriptions to stdout.
+Never log environment values that may contain credentials.
 
 ## Recipes
 
-### Resolving
+### Resolution and validation
 
-Recipe names match `[A-Za-z0-9_-]+` and resolve to `recipes/<name>.yaml`. Reject
-path traversal and ambiguous extensions. Resolve a relative CLI repository path
-against the invocation directory. Resolve action source paths and script working
-directories against the repository, never the invocation directory. Expand only
-leading `~/` in target paths; do not perform shell expansion or substitution.
-Target paths must be absolute after expansion. Repository-owned source paths must
-remain inside the repository after resolving symlinks.
+Recipe names match `[A-Za-z0-9_-]+` and resolve to `recipes/<name>.yaml` by default.
+Reject path traversal and ambiguous extensions. Resolve relative repository paths
+against the invocation directory; resolve action sources and script working
+directories against the repository. Repository-owned paths must remain inside
+that repository after symlink resolution.
 
-### Schema
+Target paths must be absolute after expanding a leading `~/`. Perform no other
+shell expansion or substitution.
 
-Use a top-level integer `version`, optional `description`, and ordered `actions`.
-Require a unique `id` and explicit `type` for every action. Reject unknown keys,
-duplicate YAML keys, unsupported versions, invalid types, and duplicate action
-IDs before making changes. Publish a JSON Schema for editor assistance when the
-parser lands; schema generation and runtime validation must agree.
+Recipes require an integer `version`, optional `description`, and ordered
+`actions`. Each action requires a unique `id` and explicit `type`. Reject unknown
+keys, duplicate YAML keys or action IDs, unsupported versions, and invalid types
+before mutation. Publish an editor JSON Schema alongside the parser and keep it
+consistent with runtime validation.
 
-Illustrative recipe, not yet executable:
+### Example
+
+Illustrative only; recipes are not implemented yet:
 
 ```yaml
 version: 1
@@ -115,13 +107,13 @@ description: Personal development environment
 actions:
   - id: shell-config
     type: link
-    source: stow/zsh
+    source: bundles/zsh
     target: "~/"
     conflict: error
 
   - id: editor-config
     type: link
-    source: stow/nvim
+    source: bundles/nvim
     target: "~/"
     conflict: backup
 
@@ -133,155 +125,135 @@ actions:
       os: [linux]
 ```
 
-A download action has `url`, `target`, `sha256`, and optional `executable`
-(default false). Require HTTPS and a full SHA-256 digest. Support optional
-`when.os` values `linux` and `macos`, and `when.arch` values `x86_64` and `aarch64`
-on all action types. Conditions are declarative, never shell expressions.
-Separate actions can select platform-specific download URLs.
+All actions support declarative `when.os` (`linux`, `macos`) and `when.arch`
+(`x86_64`, `aarch64`) conditions. Separate actions can select platform-specific
+URLs. Recipes remain flat until composition has concrete use cases and defined
+merge semantics.
 
-Keep recipes flat initially. Includes, inheritance, variables, and dependency
-graphs need concrete use cases and explicit merge semantics before introduction.
+## Execution
 
-## Execution model
+All commands share input resolution, parsing, validation, and ordered action
+planning. Dry-run and setup also inspect local state; setup then executes and
+summarizes.
 
-Use a shared pipeline: resolve inputs, parse, validate, build ordered action
-descriptions, inspect local state, execute, and summarize. `describe`, dry-run,
-and setup must share resolution and validation rather than implement three
-interpretations of recipes.
+Validate recipe structure and repository sources before mutation, detecting
+overlapping destinations where possible. Recheck each action before applying it:
+scripts can change later state, so dry-run cannot guarantee an identical run.
 
-Validate all recipe structure and repository sources before mutation. Detect
-overlapping declared destinations where possible. An arbitrary script can change
-later state, so recheck each action immediately before applying it. Dry-run
-reports this limitation; it is not a guarantee that later execution will match.
+Execute in recipe order and stop at the first failure. Summarize completed,
+unchanged, skipped, failed, and unexecuted actions. Earlier changes remain after
+a failure. Reruns inspect current state rather than trust completion markers.
+Serialize setup runs per user with a lock in the platform's user state directory.
 
-Run actions sequentially in recipe order. Stop at the first failure and summarize
-completed, unchanged, skipped, failed, and unexecuted actions. Do not claim a
-transaction across actions. Rerunning inspects current state rather than blindly
-trusting a completion marker. Serialize setup runs for the same user using a lock
-in the platform-appropriate user state directory.
+## Actions
 
-## Link action
+### Link
 
-Mirror a source package's directory structure into the target using real
-directories and symlinks for files. This is a documented subset of GNU Stow
-behavior: no directory folding or claim of full Stow compatibility. Initially
-reject source symlinks and special files with actionable diagnostics rather than
-silently dereferencing or losing them.
+Mirror a bundle into its target with real directories and absolute file symlinks.
+This is a subset of GNU Stow behavior, without directory folding. Reject source
+symlinks and special files with actionable errors.
 
-An existing symlink to the intended source is unchanged. An existing real file,
-broken symlink, or link to another source is a conflict. Do not follow target
-ancestor symlinks outside the intended tree; fail and explain the conflicting
-path. Also reject ancestor conflicts and two packages declaring the same target.
+A symlink to the intended source is unchanged. Real files, broken symlinks, and
+links elsewhere are conflicts. Reject conflicting ancestors, target ancestor
+symlinks that escape the intended tree, and bundles declaring the same destination
+file. Bundles may share parent directories, as both examples above share `~/`.
 
-The default conflict policy is `error`. Opt-in `backup` moves the conflicting
-entry to a unique backup location recorded in the run summary; never overwrite a
-previous backup. If backup fails, leave the original in place and stop. Do not
-silently delete conflicts. Use absolute source links initially and explain that
-moving the repository requires rerunning setup.
+The default `conflict: error` stops on a conflict. Opt-in `conflict: backup` moves
+the conflicting entry to a unique location recorded in the summary, without
+overwriting earlier backups. If backup fails, preserve the original and stop.
+Moving the repository requires rerunning setup because links are absolute.
 
-Removal and automatic pruning of stale links are deferred. Before introducing
-them, design an ownership manifest and ensure unrelated user files cannot be
-removed. Switching recipes initially adds or updates requested configuration; it
-does not uninstall everything omitted from the newly selected recipe.
+Switching recipes does not remove omitted configuration. Unlink and stale-link
+pruning require a future ownership manifest that protects unrelated files.
 
-## Download action
+### Download
 
-Skip when the destination is a regular file with the desired checksum and mode.
-Otherwise fetch to a temporary file in the destination filesystem, verify the
-checksum, set the requested executable permissions, and atomically rename into
-place. Refuse symlink destinations and directory targets. A checksum mismatch or
-interrupted download must leave the previous destination intact.
+Require `url` (HTTPS), `target`, and a full `sha256` digest. Optional `executable`
+and `replace` both default to false.
 
-Use TLS verification, bounded redirects and timeouts, and preserve HTTPS on
-redirects. Do not execute downloaded files as part of this action. Default to
-error if an existing file has a different checksum; an explicit `replace: true`
-authorizes replacing that exact destination after successful verification.
-This permits deliberate upgrades without treating every existing binary as owned.
+Skip a regular file with the desired checksum and mode. A different checksum is
+a conflict unless `replace: true` authorizes replacing that destination. Refuse
+symlink and directory destinations.
 
-Archives and application-specific installation remain scripts for the first
-release. Pinned downloads improve repeatability but do not make arbitrary scripts
-or package-manager operations reproducible.
+Fetch into a temporary file on the destination filesystem, verify its checksum,
+set executable permissions, and atomically rename it into place. Failed or
+interrupted downloads must preserve the previous destination. Use TLS
+verification, bounded timeouts and redirects, and HTTPS throughout redirects.
+Never execute the downloaded file.
 
-## Script action
+Archives and application-specific installation remain scripts. Pinned downloads
+do not make scripts or package-manager operations reproducible.
 
-Accept an argument array and invoke it directly, avoiding implicit shell parsing.
-Users who need Bash explicitly select it, as in the example. Resolve `cwd`
-relative to the repository, defaulting to its root. Support explicit environment
-overrides while inheriting the process environment; values must not be logged.
-Propagate failure and stream output. Child process cleanup on interruption is a
-required part of the executor implementation.
+### Script
 
-Scripts run each time by default. An optional repository-independent absolute
-`creates` path can skip execution when that path exists, with `~/` expansion.
-This is a convenience guard, not proof of correctness or idempotence. Script
-authors remain responsible for rerun safety. Do not run script-based checks in
-describe or dry-run.
+Invoke the `command` argument array directly; shell users must explicitly select
+a shell. Resolve `cwd` against the repository, defaulting to its root. Inherit the
+process environment and support explicit overrides without logging their values.
+Stream output, propagate failures, and clean up child processes on interruption.
 
-Recipes and scripts are trusted local code, not sandboxed content. Never request
-sudo globally; scripts may explicitly request elevation when their work needs it.
+Scripts run on every setup unless an optional absolute `creates` path exists
+(with leading `~/` expansion). This guard does not prove correctness; authors
+remain responsible for rerun safety. Previews never run script-based checks.
 
-## Rust architecture
+Recipes and scripts are trusted local code. Scripts may request elevation;
+the engine never requests sudo globally.
 
-Begin with one binary crate and small internal modules as features arrive:
+## Implementation and validation
 
-- `cli`: arguments, help, environment precedence, and exit behavior.
-- `config`: versioned recipe types, parsing, schema, and validation.
-- `context`: repository, home, platform, and path resolution.
-- `plan`: ordered actions and inspection results shared by all commands.
-- `actions`: link, download, and script implementations.
-- `runner`: sequential execution, locking, interruption, and summaries.
+Start with one Rust 2024 binary crate and add internal modules as needed:
 
-Use Rust 2024, commit Cargo.lock, forbid unsafe code in the application, and run
-formatting, Clippy, and tests in CI. Add dependencies when needed: Clap for CLI
-parsing, Serde plus a maintained YAML parser, an HTTP client with TLS support,
-and focused filesystem/testing crates. Evaluate YAML parser maintenance and
-duplicate-key handling before selecting it. Avoid an async runtime or dynamic
-plugin system until requirements justify either.
+| Module | Responsibility |
+| --- | --- |
+| `cli` | Arguments, help, configuration precedence, exit behavior |
+| `config` | Versioned types, parsing, schema, validation |
+| `context` | Repository, home, platform, path resolution |
+| `plan` | Shared ordered actions and inspection results |
+| `actions` | Link, download, and script implementations |
+| `runner` | Execution, locking, interruption, summaries |
 
-Use temporary directories as fake repositories and homes in integration tests.
-Never run a real user recipe as a routine test. Download tests use a controlled
-fixture server; automated tests do not contact live installer endpoints.
+Commit Cargo.lock, forbid unsafe application code, and run formatting, Clippy,
+and tests in CI. Add dependencies as features need them: Clap, Serde with a
+maintained YAML parser, a TLS-capable HTTP client, and focused filesystem/test
+crates. Check YAML maintenance and duplicate-key handling before choosing a
+parser. Defer an async runtime until requirements justify it.
 
-## Bootstrap and Codespaces
+Tests use temporary repositories and homes, never real user recipes. Download
+tests use a controlled fixture server rather than live installer endpoints.
+Milestones and acceptance checks live in [the implementation plan](plan.md).
 
-Publish prebuilt binaries for Linux and macOS on x86_64 and aarch64. Users should
-not need Cargo, Python, or GNU Stow to run the framework. User scripts can still
-depend on those tools explicitly.
+## Release and migration
 
-Retain a small executable `setup` in the personal dotfiles repository because
-Codespaces discovers and invokes it. It determines the repository path from its
-own location, selects the appropriate recipe, and invokes `wstn setup` with
-quoted arguments. If the binary is absent, a documented bootstrap path downloads
-a pinned release for the platform and verifies its checksum before execution.
-Do not use a mutable `latest` URL as the reproducibility contract.
+Publish Linux and macOS binaries for x86_64 and aarch64. Running the framework
+must not require Cargo, Python, or GNU Stow; scripts declare their own dependencies.
 
-The bootstrap wrapper will be implemented after release artifacts exist. The
-framework repository must not imply that this first scaffold is installable or
-capable of configuring a machine.
+Keep a small executable `setup` in the dotfiles directory for Codespaces. It
+finds the repository from its own location, selects a recipe, and invokes
+`wstn setup` with quoted arguments. Once release artifacts exist, a bootstrap
+path can download a pinned binary and verify its checksum before execution.
+Mutable `latest` URLs are not a reproducibility contract.
 
-## Migration and alternatives
+Migrate a small macOS or Codespaces slice first, leaving application installers
+in scripts. Keep the old setup until disposable-machine validation passes, then
+replace its orchestration with the wrapper. Preserve MIT licensing for reused
+code. Until release artifacts exist, documentation must identify the scaffold
+as incomplete.
 
-First convert a small subset of the existing macOS or Codespaces recipe, keeping
-application-specific installers as scripts. The Rust engine must not acquire
-flags named after personal tools. Keep the old setup available until the new
-recipe passes disposable-machine validation; then replace its orchestration
-with the thin wrapper. Preserve the existing MIT licensing for reused code.
+## Alternatives
 
-[Dotbot](https://github.com/anishathalye/dotbot) is the closest alternative for
-YAML-directed linking and script execution. [Toml Bombadil](https://github.com/oknozor/toml-bombadil)
-provides Rust-based dotfile profiles, templates, and hooks.
-[chezmoi](https://www.chezmoi.io/) provides a broader multi-machine dotfiles system.
-This project prioritizes an ordinary package layout, explicit setup actions, and
-a standalone binary. Rust alone is not a unique feature or a guarantee of speed.
+[Dotbot](https://github.com/anishathalye/dotbot) provides YAML-directed linking and
+scripts. [Toml Bombadil](https://github.com/oknozor/toml-bombadil) offers Rust-based
+profiles, templates, and hooks. [chezmoi](https://www.chezmoi.io/) provides broader
+multi-machine dotfiles management. Workstation prioritizes an ordinary bundle
+layout, explicit setup actions, and a standalone executable.
 
 ## Open decisions
 
-- Public repository location.
-- Whether recipe auto-selection should eventually be configurable in the engine.
-- Whether the first public release needs unlink and ownership tracking.
-- Whether archive downloads are common enough to become a built-in action.
-- Exact user state and backup directory conventions across Linux and macOS.
-- Release signing and installer delivery mechanism after the first working slice.
+- `wstn.toml` schema, including recipe defaults and directory configuration.
+- Future engine support for recipe auto-selection.
+- Whether the first public release needs ownership tracking and unlink.
+- Whether common archive workflows justify a built-in action.
+- Platform-specific state and backup locations.
+- Release signing and installer delivery.
 
-Resolve these against actual migration experience; do not block the parser and
-link prototype on features deliberately deferred above.
+Resolve these through migration experience while proceeding with the parser and
+link prototype.
