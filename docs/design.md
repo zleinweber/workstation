@@ -5,17 +5,12 @@ repository contains only the Rust scaffold. Decisions can change before version 
 
 ## Purpose
 
-Build a dotfiles manager with basic configuration management, distributed as a
-standalone Rust executable. A user keeps configuration files, recipes, and custom
-scripts in their own Git repository. The executable validates a selected recipe,
-explains its actions, and applies it to the current machine.
+Create a standalone binary executable that implements a basic configuration
+management system designed make it easy to repeatably setup Linux and
+Mac workstations.
 
-The first user is the existing personal dotfiles repository. Success means that
-its macOS and Codespaces setups can use the same generic executable without
-embedding knowledge of Homebrew, Neovim, Atuin, or personal preferences in Rust.
-
-The project is also an opportunity to learn Rust and develop a useful public tool.
-It need not replace established tools for every user to be worth building.
+The binary exposes a framework that users can leverage while their actual
+configuration files live in their own dotfiles repository.
 
 ## Scope
 
@@ -29,31 +24,40 @@ abstractions, archive extraction, a plugin ABI, parallel execution, automatic
 upstream version discovery, and general rollback are deferred. Existing scripts
 can perform application-specific work, including package-manager operations.
 
+## Terminology
+
+- `worktation` - The configuration and dotfiles management system and project name
+- `wstn` - The command line tool (also just pronounced "workstation")
+- `dotfiles` - A directory (usually revision controlled) that is passed as input into `wstn` (by default it will use `~/.dotfiles`). The framework has some expectations on components it expects to find here and layout.
+- `recipes` - YAML Defined configuration scenarios. Generally these live in `./recipes/` relative to the dotfiles root.
+- `bundles` - Named collections of configuration files that get mirrired into a users home directory via symlinks (think like stow). Generally these live in `./bundles/` relative to the dotfiles root (though today in my own dotfiels repository these live under `./stow`).
+- `scripts` - Arbitrary shell that workstation can call to set things up.
+
 ## Repository boundary
 
 The framework repository owns the CLI, schema, generic actions, documentation,
 tests, and release tooling. A user's repository owns recipes, configuration files,
 installer scripts, package lists, and machine preferences.
 
-Recommended user repository layout:
+The input repository will look something like:
 
 ```text
 ~/.dotfiles/
-  recipes/
-    macos.yaml
-    codespaces.yaml
-  stow/
-    zsh/.zshrc
-    nvim/.config/nvim/init.lua
-  scripts/
+  recipes/ # Directory for user defined recipes
+    macos.yaml # User defined macos recipe
+    codespaces.yaml # User defined codespace recipe
+  bundles/ # Named configuration bundles 
+    zsh/.zshrc # "zsh" configuration bundle
+    nvim/.config/nvim/init.lua # "nvim" configuration bundle
+  scripts/ # Directory containing user defined scripts
     install-tools.sh
   setup
+  wstn.toml # Optional workstation configuration
 ```
 
-`stow/` is a convention preserving compatibility with the existing layout. The
-link action accepts a repository-relative source directory, so users can choose
-another name. Git is a storage convention, not a runtime dependency; an ordinary
-directory works too. Cloning and updating repositories remain the user's concern.
+In my existing dotfiles repo `stow/`. Ultimately, I expect the top level diretory
+names to be configurable. But, I'm proposing that we conventionally call this
+"bundles".
 
 ## CLI and configuration
 
@@ -66,18 +70,11 @@ wstn describe codespaces --repo ~/src/dotfiles
 wstn setup codespaces --dry-run
 ```
 
-The recipe positional argument overrides `WSTN_RECIPE`. `--repo` overrides
-`WSTN_REPO`, which defaults to `~/.dotfiles`. If no recipe is supplied, report how
-to select one and list available recipes. Automatic platform selection belongs in
-the user's wrapper initially; it should not silently select an unexpected recipe.
+Configuration for `wstn` itself will be via three mechanisms:
 
-Recipe names match `[A-Za-z0-9_-]+` and resolve to `recipes/<name>.yaml`. Reject
-path traversal and ambiguous extensions. Resolve a relative CLI repository path
-against the invocation directory. Resolve action source paths and script working
-directories against the repository, never the invocation directory. Expand only
-leading `~/` in target paths; do not perform shell expansion or substitution.
-Target paths must be absolute after expansion. Repository-owned source paths must
-remain inside the repository after resolving symlinks.
+1. Command line flags (e.g. `--repo`) - highest priority.
+2. Environment variables (e.g. `WSTN_REPO`) - second highest priority.
+3. The `wstn.toml` at the root of the dotfiles repo - lowest priority.
 
 `describe` parses and validates the selected recipe, then prints its description,
 ordered actions, conditions, and resolved paths. It performs no execution,
@@ -90,7 +87,19 @@ Use exit status 0 for success, 1 for execution failure, and 2 for invalid CLI or
 configuration. Write diagnostics to stderr and requested descriptions to stdout.
 Do not print environment values that may contain credentials.
 
-## Recipe schema
+## Recipes
+
+### Resolving
+
+Recipe names match `[A-Za-z0-9_-]+` and resolve to `recipes/<name>.yaml`. Reject
+path traversal and ambiguous extensions. Resolve a relative CLI repository path
+against the invocation directory. Resolve action source paths and script working
+directories against the repository, never the invocation directory. Expand only
+leading `~/` in target paths; do not perform shell expansion or substitution.
+Target paths must be absolute after expansion. Repository-owned source paths must
+remain inside the repository after resolving symlinks.
+
+### Schema
 
 Use a top-level integer `version`, optional `description`, and ordered `actions`.
 Require a unique `id` and explicit `type` for every action. Reject unknown keys,
