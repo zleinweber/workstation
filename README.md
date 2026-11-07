@@ -2,8 +2,10 @@
 
 A recipe-driven dotfiles manager with basic configuration management, written in Rust.
 
-**Status: project scaffold.** Help and version output work. Recipes, linking,
-downloads, and script execution are proposed and are not implemented yet.
+**Status: initial implementation.** Help and version output work. An internal
+V1 YAML parser validates empty recipes and link action fields; see
+[example recipes](examples/recipes/). CLI recipe loading, linking, downloads,
+and script execution are not implemented yet.
 
 Workstation will take a local dotfiles repository and a named YAML recipe, explain
 the recipe, and apply its actions. Configuration files and personal scripts stay
@@ -39,7 +41,7 @@ cargo test --locked --all-targets
 The project uses Rust 2024, with Rust 1.85 as the minimum supported version.
 `rust-toolchain.toml` selects stable Rust with rustfmt and Clippy. CI checks stable
 and the minimum version on Linux and macOS. Cargo.lock is committed for the CLI.
-There are no runtime dependencies at the scaffold stage.
+The parser uses Serde and `serde_yaml_ng`.
 
 ### Codespaces and devcontainers
 

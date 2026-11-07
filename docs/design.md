@@ -1,6 +1,6 @@
 # Workstation design
 
-Status: proposal. Only the Rust scaffold exists; the behavior below is planned.
+Status: evolving design. See the README for current implementation status.
 
 ## Purpose and scope
 
@@ -91,15 +91,28 @@ that repository after symlink resolution.
 Target paths must be absolute after expanding a leading `~/`. Perform no other
 shell expansion or substitution.
 
-Recipes require an integer `version`, optional `description`, and ordered
-`actions`. Each action requires a unique `id` and explicit `type`. Reject unknown
-keys, duplicate YAML keys or action IDs, unsupported versions, and invalid types
-before mutation. Publish an editor JSON Schema alongside the parser and keep it
-consistent with runtime validation.
+Recipes contain ordered actions. The initial V1 definition is:
+
+| Field | Type | Required | Validation |
+| --- | --- | --- | --- |
+| `version` | integer | yes | Must equal `1`; quoted strings and floats are invalid. |
+| `description` | string | no | If present, must contain non-whitespace text; null is invalid. |
+| `actions` | list of actions | yes | Execution order; an empty list is valid. |
+| action `id` | string | yes | Must contain non-whitespace text and be unique within the recipe. |
+| action `type` | string | yes | Selects a supported action type and its fields. |
+
+Recipes are single YAML documents. Preserve strings without trimming and compare
+IDs exactly, case-sensitively. Reject duplicate keys or IDs, unknown fields or
+action types, unsupported versions, and incorrect field types. Duplicate ID
+errors identify both action positions. Action-specific fields are defined below.
+
+V1 may add features that preserve existing recipes' meaning; breaking changes
+normally require a new schema version. Older binaries may reject newer V1
+features. During experimentation, V1 may still change without a stability promise.
 
 ### Example
 
-Illustrative only; recipes are not implemented yet:
+Illustrative recipe:
 
 ```yaml
 version: 1
@@ -148,6 +161,9 @@ Serialize setup runs per user with a lock in the platform's user state directory
 ## Actions
 
 ### Link
+
+Requires non-whitespace strings `source` and `target`; optional `conflict` is
+`error` (the default) or `backup`.
 
 Mirror a bundle into its target with real directories and absolute file symlinks.
 This is a subset of GNU Stow behavior, without directory folding. Reject source
