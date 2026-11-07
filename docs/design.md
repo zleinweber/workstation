@@ -41,12 +41,10 @@ The dotfiles directory owns recipes, bundles, scripts, and machine preferences:
   scripts/
     install-tools.sh
   setup
-  wstn.toml                  # Optional framework configuration
 ```
 
 `bundles/` is a convention. A link action names its repository-relative source,
-so existing `stow/` layouts still work. Configurable top-level directory names
-are intended; their configuration keys remain an open decision.
+so existing `stow/` layouts still work.
 
 ## CLI and configuration
 
@@ -56,13 +54,12 @@ wstn describe codespaces --repo ~/src/dotfiles
 wstn setup codespaces --dry-run
 ```
 
-Configuration precedence is CLI arguments, then `WSTN_` environment variables,
-then the dotfiles directory's optional `wstn.toml`, then built-in defaults.
-Resolve the repository first using `--repo`, `WSTN_REPO`, or `~/.dotfiles`, then
-read its configuration file. The file cannot select its own repository location.
-The recipe argument overrides `WSTN_RECIPE`; the TOML recipe key is still to be
-specified. If no recipe is selected, explain how to select one and list available
-recipes. Platform auto-selection belongs in the user's wrapper initially.
+Command configuration uses only CLI arguments, `WSTN_` environment variables,
+and built-in defaults, in that order of precedence.
+Resolve the repository using `--repo`, `WSTN_REPO`, or
+`~/.dotfiles`, in that order. The recipe argument overrides `WSTN_RECIPE`.
+If no recipe is selected, explain how to select one and list available recipes.
+Platform auto-selection belongs in the user's wrapper initially.
 
 | Command | Behavior |
 | --- | --- |
@@ -264,7 +261,6 @@ layout, explicit setup actions, and a standalone executable.
 
 ## Open decisions
 
-- `wstn.toml` schema, including recipe defaults and directory configuration.
 - Future engine support for recipe auto-selection.
 - Whether the first public release needs ownership tracking and unlink.
 - Whether common archive workflows justify a built-in action.

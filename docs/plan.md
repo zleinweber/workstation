@@ -18,7 +18,8 @@ Publication and release binaries are separate from local scaffolding.
 ## 1 Recipes and describe
 
 - Add Clap and choose a maintained YAML parser after checking duplicate-key behavior.
-- Implement repository/recipe selection and CLI-over-environment precedence.
+- Implement repository/recipe selection using CLI arguments, then `WSTN_`
+  environment variables, then built-in defaults.
 - Implement version 1 types, strict validation, and editor JSON Schema.
 - Implement `describe` with ordered actions and resolved paths, without mutation.
 - Add an example recipe and temporary-repository integration fixtures.
