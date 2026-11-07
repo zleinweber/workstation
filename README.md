@@ -26,6 +26,27 @@ custom scripts. A small `setup` wrapper in a user's repository will preserve
 GitHub Codespaces integration. Prebuilt releases are planned so end users will
 not need a Rust toolchain.
 
+## Recipe editor support
+
+The checked-in [V1 JSON Schema](schemas/recipe-v1.schema.json) provides field/value
+completion and diagnostics for the current recipe format (link actions only).
+With an editor using the YAML language server (`yaml-language-server`), add this
+modeline at the top of `examples/recipes/links.yaml`:
+
+```yaml
+# yaml-language-server: $schema=../../schemas/recipe-v1.schema.json
+version: 1
+actions: []
+```
+
+The schema path is relative to the YAML file; adjust it for recipes elsewhere.
+For a dotfiles repository, copy the schema locally and point to that copy.
+Editor diagnostics supplement the authoritative Rust parser. JSON Schema cannot
+detect duplicate YAML keys or enforce unique action IDs. YAML numeric syntax also
+depends on the editor's YAML parser: JSON Schema treats `1.0` as an integer equal
+to `1`, while the Rust parser rejects that YAML version value. Editor validation
+does not check filesystem paths or execute actions.
+
 ## Development
 
 Install Rust through [rustup](https://rustup.rs/), then run:
@@ -42,6 +63,10 @@ The project uses Rust 2024, with Rust 1.85 as the minimum supported version.
 `rust-toolchain.toml` selects stable Rust with rustfmt and Clippy. CI checks stable
 and the minimum version on Linux and macOS. Cargo.lock is committed for the CLI.
 The parser uses Serde and `serde_yaml_ng`.
+
+`cargo test` also checks the editor schema and validates the existing YAML examples
+against it. The JSON Schema validator is a development-only dependency with remote
+and file fetching disabled.
 
 ### Codespaces and devcontainers
 

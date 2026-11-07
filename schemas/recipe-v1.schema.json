@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Workstation V1 recipe",
+  "description": "Ordered link actions for Workstation. The Rust parser is authoritative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "actions"],
+  "properties": {
+    "version": {
+      "description": "Recipe format version; currently only 1 is supported.",
+      "type": "integer",
+      "const": 1
+    },
+    "description": {
+      "description": "Optional human-readable recipe description, containing non-whitespace text.",
+      "$ref": "#/$defs/nonblank"
+    },
+    "actions": {
+      "description": "Link actions in execution order; an empty list is allowed.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/link" }
+    }
+  },
+  "$defs": {
+    "nonblank": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "source", "target"],
+      "properties": {
+        "id": {
+          "description": "Nonblank action identifier; must be unique within the recipe.",
+          "$ref": "#/$defs/nonblank"
+        },
+        "type": {
+          "description": "Action kind; currently only link is supported.",
+          "type": "string",
+          "const": "link"
+        },
+        "source": {
+          "description": "Nonblank source bundle path.",
+          "$ref": "#/$defs/nonblank"
+        },
+        "target": {
+          "description": "Nonblank destination path.",
+          "$ref": "#/$defs/nonblank"
+        },
+        "conflict": {
+          "description": "How to handle existing destination entries; defaults to error.",
+          "type": "string",
+          "enum": ["error", "backup"],
+          "default": "error"
+        }
+      }
+    }
+  }
+}
