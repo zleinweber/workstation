@@ -1,6 +1,7 @@
 # Workstation design
 
-Status: proposal. Only the Rust scaffold exists; the behavior below is planned.
+Status: initial implementation. The internal parser supports the V1 recipe
+envelope and link action fields. CLI recipe loading and execution remain planned.
 
 ## Purpose and scope
 
@@ -91,15 +92,40 @@ that repository after symlink resolution.
 Target paths must be absolute after expanding a leading `~/`. Perform no other
 shell expansion or substitution.
 
-Recipes require an integer `version`, optional `description`, and ordered
-`actions`. Each action requires a unique `id` and explicit `type`. Reject unknown
-keys, duplicate YAML keys or action IDs, unsupported versions, and invalid types
-before mutation. Publish an editor JSON Schema alongside the parser and keep it
-consistent with runtime validation.
+Recipes contain ordered actions. The initial V1 definition is:
+
+| Field | Type | Required | Validation |
+| --- | --- | --- | --- |
+| `version` | integer | yes | Must equal `1`; quoted strings and floats are invalid. |
+| `description` | string | no | If present, must contain non-whitespace text; null is invalid. |
+| `actions` | list of actions | yes | Execution order; an empty list is valid. |
+| action `id` | string | yes | Must contain non-whitespace text and be unique within the recipe. |
+| action `type` | string | yes | Selects a supported action type and its fields. |
+
+IDs are compared exactly and case-sensitively. Valid strings are preserved
+without trimming. Unknown fields, duplicate YAML keys, unsupported versions,
+unsupported action types, and incorrect field types are errors. Input must be a
+single YAML document. Duplicate action ID errors identify both action positions.
+
+The first parser increment supports `type: link`, with required non-whitespace
+strings `source` and `target`, and optional `conflict` (`error` by default, or
+`backup`). This validates content only: path resolution, containment, existence,
+and filesystem conflict checks remain separate work. Script, download, and
+`when` fields described below are proposals and are not accepted by this parser
+yet. The internal entry point is `config::parse_recipe`; CLI loading and editor
+JSON Schema are deferred.
+
+V1 can grow through new action types and optional fields whose defaults preserve
+existing recipes' meaning. Breaking changes, such as removing fields, requiring
+new fields on existing actions, or changing existing defaults or semantics,
+normally require a new schema version. Older binaries may reject newer V1
+features; schema version and binary version are distinct. While experimental,
+breaking changes may still be documented within V1 without a stability promise.
 
 ### Example
 
-Illustrative only; recipes are not implemented yet:
+Illustrative full recipe; script and condition support are not implemented yet.
+Valid parser inputs live in `examples/recipes/`:
 
 ```yaml
 version: 1
@@ -216,6 +242,13 @@ and tests in CI. Add dependencies as features need them: Clap, Serde with a
 maintained YAML parser, a TLS-capable HTTP client, and focused filesystem/test
 crates. Check YAML maintenance and duplicate-key handling before choosing a
 parser. Defer an async runtime until requirements justify it.
+
+The first parser uses `serde_yaml_ng` 0.10, a maintained fork of `serde_yaml`
+with a declared Rust 1.64 minimum (below this project's 1.85 minimum). Parse
+through its YAML value representation before typed deserialization to reject
+duplicate keys throughout the document and avoid coercing numbers into strings.
+Focused tests lock down duplicate-key rejection and strict field types,
+including rejecting null for the required action list.
 
 Tests use temporary repositories and homes, never real user recipes. Download
 tests use a controlled fixture server rather than live installer endpoints.

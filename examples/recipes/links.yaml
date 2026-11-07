@@ -1,0 +1,12 @@
+version: 1
+description: Shell and editor configuration
+actions:
+  - id: shell-config
+    type: link
+    source: bundles/zsh
+    target: "~/"
+  - id: editor-config
+    type: link
+    source: bundles/nvim
+    target: "~/"
+    conflict: backup

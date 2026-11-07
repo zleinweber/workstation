@@ -7,6 +7,10 @@ description = "A recipe-driven dotfiles manager with basic configuration managem
 license = "MIT"
 publish = false
 
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_yaml_ng = "0.10"
+
 [[bin]]
 name = "wstn"
 path = "src/main.rs"
