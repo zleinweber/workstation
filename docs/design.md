@@ -1,7 +1,6 @@
 # Workstation design
 
-Status: initial implementation. The internal parser supports the V1 recipe
-envelope and link action fields. CLI recipe loading and execution remain planned.
+Status: evolving design. See the README for current implementation status.
 
 ## Purpose and scope
 
@@ -102,30 +101,18 @@ Recipes contain ordered actions. The initial V1 definition is:
 | action `id` | string | yes | Must contain non-whitespace text and be unique within the recipe. |
 | action `type` | string | yes | Selects a supported action type and its fields. |
 
-IDs are compared exactly and case-sensitively. Valid strings are preserved
-without trimming. Unknown fields, duplicate YAML keys, unsupported versions,
-unsupported action types, and incorrect field types are errors. Input must be a
-single YAML document. Duplicate action ID errors identify both action positions.
+Recipes are single YAML documents. Preserve strings without trimming and compare
+IDs exactly, case-sensitively. Reject duplicate keys or IDs, unknown fields or
+action types, unsupported versions, and incorrect field types. Duplicate ID
+errors identify both action positions. Action-specific fields are defined below.
 
-The first parser increment supports `type: link`, with required non-whitespace
-strings `source` and `target`, and optional `conflict` (`error` by default, or
-`backup`). This validates content only: path resolution, containment, existence,
-and filesystem conflict checks remain separate work. Script, download, and
-`when` fields described below are proposals and are not accepted by this parser
-yet. The internal entry point is `config::parse_recipe`; CLI loading and editor
-JSON Schema are deferred.
-
-V1 can grow through new action types and optional fields whose defaults preserve
-existing recipes' meaning. Breaking changes, such as removing fields, requiring
-new fields on existing actions, or changing existing defaults or semantics,
+V1 may add features that preserve existing recipes' meaning; breaking changes
 normally require a new schema version. Older binaries may reject newer V1
-features; schema version and binary version are distinct. While experimental,
-breaking changes may still be documented within V1 without a stability promise.
+features. During experimentation, V1 may still change without a stability promise.
 
 ### Example
 
-Illustrative full recipe; script and condition support are not implemented yet.
-Valid parser inputs live in `examples/recipes/`:
+Illustrative recipe:
 
 ```yaml
 version: 1
@@ -174,6 +161,9 @@ Serialize setup runs per user with a lock in the platform's user state directory
 ## Actions
 
 ### Link
+
+Requires non-whitespace strings `source` and `target`; optional `conflict` is
+`error` (the default) or `backup`.
 
 Mirror a bundle into its target with real directories and absolute file symlinks.
 This is a subset of GNU Stow behavior, without directory folding. Reject source
@@ -242,13 +232,6 @@ and tests in CI. Add dependencies as features need them: Clap, Serde with a
 maintained YAML parser, a TLS-capable HTTP client, and focused filesystem/test
 crates. Check YAML maintenance and duplicate-key handling before choosing a
 parser. Defer an async runtime until requirements justify it.
-
-The first parser uses `serde_yaml_ng` 0.10, a maintained fork of `serde_yaml`
-with a declared Rust 1.64 minimum (below this project's 1.85 minimum). Parse
-through its YAML value representation before typed deserialization to reject
-duplicate keys throughout the document and avoid coercing numbers into strings.
-Focused tests lock down duplicate-key rejection and strict field types,
-including rejecting null for the required action list.
 
 Tests use temporary repositories and homes, never real user recipes. Download
 tests use a controlled fixture server rather than live installer endpoints.
