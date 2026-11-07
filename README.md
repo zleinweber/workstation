@@ -64,13 +64,9 @@ The project uses Rust 2024, with Rust 1.85 as the minimum supported version.
 and the minimum version on Linux and macOS. Cargo.lock is committed for the CLI.
 The parser uses Serde and `serde_yaml_ng`.
 
-Schema tests use Python 3 with development-only dependencies and also run in CI:
-
-```sh
-python3 -m venv .venv
-.venv/bin/python -m pip install -r tests/schema-requirements.txt
-.venv/bin/python -m unittest discover -s tests -p 'test_*.py'
-```
+`cargo test` also checks the editor schema and validates the existing YAML examples
+against it. The JSON Schema validator is a development-only dependency with remote
+and file fetching disabled.
 
 ### Codespaces and devcontainers
 
