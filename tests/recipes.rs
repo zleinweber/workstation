@@ -9,7 +9,7 @@ fn empty_actions_and_omitted_description_are_valid() {
 }
 
 #[test]
-fn links_preserve_order_strings_and_defaults() {
+fn links_preserve_order_and_conflict_policies() {
     let recipe = parse_recipe(include_str!("../examples/recipes/links.yaml")).unwrap();
     assert_eq!(
         recipe.actions.iter().map(Action::id).collect::<Vec<_>>(),
@@ -29,6 +29,10 @@ fn links_preserve_order_strings_and_defaults() {
             ..
         }
     ));
+}
+
+#[test]
+fn description_preserves_whitespace() {
     let recipe = parse_recipe("version: 1\ndescription: '  useful text  '\nactions: []").unwrap();
     assert_eq!(recipe.description.as_deref(), Some("  useful text  "));
 }
@@ -53,6 +57,10 @@ fn rejects_invalid_envelopes() {
     ] {
         assert!(parse_recipe(yaml).is_err(), "accepted {yaml:?}");
     }
+}
+
+#[test]
+fn rejects_invalid_descriptions() {
     for description in ["null", "''", "'  '", "42", "true", "[]", "{}"] {
         let yaml = format!("version: 1\ndescription: {description}\nactions: []");
         assert!(parse_recipe(&yaml).is_err(), "accepted {yaml:?}");
@@ -61,59 +69,58 @@ fn rejects_invalid_envelopes() {
 
 #[test]
 fn rejects_invalid_actions() {
-    let valid =
-        "id: shell\n    type: link\n    source: bundles/zsh\n    target: '~/Home with spaces'";
-    let wrap = |action: &str| format!("version: 1\nactions:\n  - {action}\n");
-    assert!(parse_recipe(&wrap(valid)).is_ok());
-    for field in ["id", "type", "source", "target"] {
-        let lines: Vec<_> = valid
-            .lines()
-            .filter(|line| !line.trim_start().starts_with(&format!("{field}:")))
-            .collect();
-        assert!(
-            parse_recipe(&wrap(lines.join("\n").trim_start())).is_err(),
-            "accepted missing {field}"
-        );
-        for value in ["''", "'  '", "null", "42", "true", "[]", "{}"] {
-            let lines: Vec<_> = valid
-                .lines()
-                .map(|line| {
-                    if line.trim_start().starts_with(&format!("{field}:")) {
-                        format!(
-                            "{}{}: {value}",
-                            if line.starts_with(' ') { "    " } else { "" },
-                            field
-                        )
-                    } else {
-                        line.to_owned()
-                    }
-                })
-                .collect();
-            let yaml = wrap(&lines.join("\n"));
-            assert!(parse_recipe(&yaml).is_err(), "accepted {yaml:?}");
-        }
-    }
-    for extra in [
-        "extra: true",
-        "conflict: overwrite",
-        "source: other",
-        "type: link",
-        "id: again",
-        "conflict: error\n    conflict: backup",
+    for action in [
+        // Missing required fields.
+        "{type: link, source: bundles/zsh, target: '~/'}",
+        "{id: shell, source: bundles/zsh, target: '~/'}",
+        "{id: shell, type: link, target: '~/'}",
+        "{id: shell, type: link, source: bundles/zsh}",
+        // Unsupported types, fields, and policies.
+        "{id: shell, type: script, source: bundles/zsh, target: '~/'}",
+        "{id: shell, type: link, source: bundles/zsh, target: '~/', extra: true}",
+        "{id: shell, type: link, source: bundles/zsh, target: '~/', conflict: overwrite}",
+        // Duplicate keys.
+        "{id: shell, type: link, source: bundles/zsh, target: '~/', source: other}",
+        "{id: shell, type: link, source: bundles/zsh, target: '~/', type: link}",
+        "{id: shell, type: link, source: bundles/zsh, target: '~/', id: again}",
+        "{id: shell, type: link, source: bundles/zsh, target: '~/', conflict: error, conflict: backup}",
     ] {
-        assert!(
-            parse_recipe(&wrap(&format!("{valid}\n    {extra}"))).is_err(),
-            "accepted {extra}"
-        );
+        let yaml = format!("version: 1\nactions: [{action}]");
+        assert!(parse_recipe(&yaml).is_err(), "accepted {yaml:?}");
     }
-    assert!(parse_recipe(&wrap(&valid.replace("type: link", "type: script"))).is_err());
 }
 
 #[test]
-fn duplicate_ids_report_both_positions_and_are_case_sensitive() {
+fn rejects_invalid_action_field_values() {
+    for value in ["''", "'  '", "null", "42", "true", "[]", "{}"] {
+        for action in [
+            format!("{{id: {value}, type: link, source: bundles/zsh, target: '~/'}}"),
+            format!("{{id: shell, type: {value}, source: bundles/zsh, target: '~/'}}"),
+            format!("{{id: shell, type: link, source: {value}, target: '~/'}}"),
+            format!("{{id: shell, type: link, source: bundles/zsh, target: {value}}}"),
+        ] {
+            let yaml = format!("version: 1\nactions: [{action}]");
+            assert!(parse_recipe(&yaml).is_err(), "accepted {yaml:?}");
+        }
+    }
+}
+
+#[test]
+fn link_target_accepts_spaces() {
+    let yaml = "version: 1\nactions: [{id: shell, type: link, source: bundles/zsh, target: '~/Home with spaces'}]";
+    assert!(parse_recipe(yaml).is_ok());
+}
+
+#[test]
+fn duplicate_ids_report_both_positions() {
     let yaml = include_str!("../examples/recipes/links.yaml");
     let error = parse_recipe(&yaml.replace("editor-config", "shell-config")).unwrap_err();
     assert!(error.contains("shell-config"), "{error}");
     assert!(error.contains("1 and 2"), "{error}");
+}
+
+#[test]
+fn action_ids_are_case_sensitive() {
+    let yaml = include_str!("../examples/recipes/links.yaml");
     assert!(parse_recipe(&yaml.replace("editor-config", "Shell-config")).is_ok());
 }
