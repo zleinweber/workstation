@@ -1,33 +1,34 @@
+use std::path::PathBuf;
 use std::process::ExitCode;
 
-const HELP: &str = "Workstation — a recipe-driven dotfiles manager
+use clap::{CommandFactory, Parser};
+use workstation::cli::{Cli, Command};
+use workstation::recipe::{load_recipe, resolve_repository};
 
-Usage: wstn [OPTIONS]
-
-Options:
-  -h, --help       Print help
-  -V, --version    Print version
-
-Recipe commands and setup actions are not implemented yet.";
-
-fn main() -> ExitCode {
-    let mut args = std::env::args_os().skip(1);
-    let first = args.next();
-
-    if args.next().is_some() {
-        eprintln!("error: unexpected arguments; run wstn --help");
-        return ExitCode::from(2);
-    }
-
-    match first.as_deref().and_then(|arg| arg.to_str()) {
-        None if first.is_none() => println!("{HELP}"),
-        Some("-h" | "--help") => println!("{HELP}"),
-        Some("-V" | "--version") => println!("wstn {}", env!("CARGO_PKG_VERSION")),
-        _ => {
-            eprintln!("error: unsupported command or option; run wstn --help");
-            return ExitCode::from(2);
+fn run(cli: Cli) -> Result<(), String> {
+    let Some(command) = cli.command else {
+        Cli::command().print_help().map_err(|e| e.to_string())?;
+        println!();
+        return Ok(());
+    };
+    match command {
+        Command::Describe(inputs) => {
+            let cwd = std::env::current_dir()
+                .map_err(|e| format!("cannot determine invocation directory: {e}"))?;
+            let home = std::env::var_os("HOME").map(PathBuf::from);
+            let repository = resolve_repository(inputs.repo.as_deref(), &cwd, home.as_deref())?;
+            load_recipe(repository, inputs.recipe.as_deref())?;
+            Err("describe rendering is not implemented yet".into())
         }
     }
+}
 
-    ExitCode::SUCCESS
+fn main() -> ExitCode {
+    match run(Cli::parse()) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("error: {error}");
+            ExitCode::from(2)
+        }
+    }
 }
