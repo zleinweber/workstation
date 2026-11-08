@@ -63,6 +63,7 @@ Platform auto-selection belongs in the user's wrapper initially.
 
 | Command | Behavior |
 | --- | --- |
+| `list` | Discover direct `recipes/<name>.yaml` files in name order and print Name/Description columns using the V1 parser. Ignore `WSTN_RECIPE`; omitted descriptions are blank. |
 | `describe` | Validate the recipe; print its description, ordered actions, conditions, and resolved paths. |
 | `setup --dry-run` | Also inspect local state and report planned operations and conflicts. |
 | `setup` | Apply actions sequentially and summarize the result. |
@@ -78,6 +79,13 @@ Never log environment values that may contain credentials.
 ## Recipes
 
 ### Resolution and validation
+
+`list` is implemented. It uses the repository selection below, treats a missing
+or empty `recipes/` directory as no recipes, and validates all discovered recipes
+before printing a table. Other extensions and nested directories are ignored.
+Invalid names, repository escapes, and loading/validation errors fail with exit
+code 2 and diagnostics on stderr. Multiline descriptions display on one row.
+
 
 Recipe names match `[A-Za-z0-9_-]+` and resolve to `recipes/<name>.yaml` by default.
 Reject path traversal and ambiguous extensions. Resolve relative repository paths

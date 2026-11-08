@@ -2,14 +2,34 @@
 
 A recipe-driven dotfiles manager with basic configuration management, written in Rust.
 
-**Status: initial implementation.** Help and version output work. An internal
+**Status: initial implementation.** Help, version, and `list` output work. An internal
 V1 YAML parser validates empty recipes and link action fields; see
-[example recipes](examples/recipes/). CLI recipe loading, linking, downloads,
+[example recipes](examples/recipes/). Recipe description commands, linking, downloads,
 and script execution are not implemented yet.
 
 Workstation will take a local dotfiles repository and a named YAML recipe, explain
 the recipe, and apply its actions. Configuration files and personal scripts stay
 in the user's repository; the executable supplies the reusable framework.
+
+## List recipes
+
+```sh
+wstn list
+wstn list --repo ~/src/dotfiles
+```
+
+`list` prints a table with `Name` and `Description` columns, sorted by recipe
+name. Omitted descriptions leave a blank cell. Repository selection uses
+`--repo`, then `WSTN_REPO`, then `~/.dotfiles`; relative paths resolve from the
+current directory and leading `~/` expands using `HOME`. `WSTN_RECIPE` does not
+filter the list.
+
+Discovery reads direct `recipes/<name>.yaml` files, where names contain only
+ASCII letters, digits, underscores, and hyphens. Other extensions and nested
+recipes are ignored. Every discovered recipe is validated with the V1 parser;
+repository-owned symlinks must resolve inside the repository. No actions execute.
+An absent or empty `recipes/` directory reports no recipes. Invalid repositories
+or recipes produce diagnostics on stderr and exit code 2, without a partial table.
 
 ## Intended experience
 
