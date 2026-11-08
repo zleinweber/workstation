@@ -4,8 +4,10 @@ A recipe-driven dotfiles manager with basic configuration management, written in
 
 **Status: initial implementation.** Help and version output work. An internal
 V1 YAML parser validates empty recipes and link action fields; see
-[example recipes](examples/recipes/). CLI recipe loading, linking, downloads,
-and script execution are not implemented yet.
+[example recipes](examples/recipes/). `describe` loads and validates a selected
+recipe, but description rendering, linking, downloads, and script execution are
+not implemented yet. Until rendering is available, even a valid recipe returns
+exit code 2 with an explicit diagnostic.
 
 Workstation will take a local dotfiles repository and a named YAML recipe, explain
 the recipe, and apply its actions. Configuration files and personal scripts stay
@@ -25,6 +27,17 @@ The initial action set is package-based symlinks, verified file downloads, and
 custom scripts. A small `setup` wrapper in a user's repository will preserve
 GitHub Codespaces integration. Prebuilt releases are planned so end users will
 not need a Rust toolchain.
+
+## Recipe selection
+
+`wstn describe [recipe] --repo <path>` accepts repository and recipe inputs.
+`--repo` overrides `WSTN_REPO`, defaulting to `~/.dotfiles`; the positional
+recipe overrides `WSTN_RECIPE`. Relative repository paths use the invocation
+directory, and a leading `~/` expands using `HOME`. No other shell expansion
+is performed. Names use `[A-Za-z0-9_-]+` and select `recipes/<name>.yaml`.
+Without a name, the command reports selection instructions and available names
+in sorted order. Recipe paths must stay inside the repository after resolving
+symlinks. Loading errors go to stderr with exit code 2.
 
 ## Recipe editor support
 
