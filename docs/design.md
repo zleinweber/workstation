@@ -59,6 +59,10 @@ and built-in defaults, in that order of precedence.
 Resolve the repository using `--repo`, `WSTN_REPO`, or
 `~/.dotfiles`, in that order. The recipe argument overrides `WSTN_RECIPE`.
 If no recipe is selected, explain how to select one and list available recipes.
+Repository paths support leading `~/` expansion using `HOME`, with no other
+shell expansion. Discovery lists valid `.yaml` filenames in sorted order,
+ignoring other extensions and directories; contents are validated on selection.
+Discovery and loading reject recipe symlinks that escape the repository.
 Platform auto-selection belongs in the user's wrapper initially.
 
 | Command | Behavior |
@@ -80,12 +84,11 @@ Never log environment values that may contain credentials.
 
 ### Resolution and validation
 
-`list` is implemented. It uses the repository selection below, treats a missing
-or empty `recipes/` directory as no recipes, and validates all discovered recipes
+`list` is implemented. It uses the repository selection below, treats an empty
+`recipes/` directory as no recipes, and validates all discovered recipes
 before printing a table. Other extensions and nested directories are ignored.
-Invalid names, repository escapes, and loading/validation errors fail with exit
-code 2 and diagnostics on stderr. Multiline descriptions display on one row.
-
+Invalid names are ignored during discovery. Repository escapes and
+loading/validation errors fail with exit code 2 and diagnostics on stderr. Multiline descriptions display on one row.
 
 Recipe names match `[A-Za-z0-9_-]+` and resolve to `recipes/<name>.yaml` by default.
 Reject path traversal and ambiguous extensions. Resolve relative repository paths

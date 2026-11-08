@@ -105,7 +105,7 @@ fn repository_environment_and_default_and_tilde_expansion() {
 }
 
 #[test]
-fn empty_and_absent_recipe_directories_are_clear() {
+fn empty_recipe_directory_is_clear_and_missing_directory_fails() {
     let fixture = Fixture::new();
     assert!(
         stdout(
@@ -119,14 +119,14 @@ fn empty_and_absent_recipe_directories_are_clear() {
     );
     fs::remove_dir(fixture.0.join("recipes")).unwrap();
     assert!(
-        stdout(
+        failure(
             fixture
                 .command()
                 .args(["list", "--repo", "."])
                 .output()
                 .unwrap()
         )
-        .contains("No recipes available")
+        .contains("cannot access recipe path")
     );
 }
 
@@ -155,14 +155,14 @@ fn invalid_repositories_recipes_and_arguments_fail_without_partial_table() {
     fixture.recipe("broken.yaml", "version: 1\nactions: []");
     fixture.recipe("bad.name.yaml", "version: 1\nactions: []");
     assert!(
-        failure(
+        !stdout(
             fixture
                 .command()
                 .args(["list", "--repo", "."])
                 .output()
                 .unwrap()
         )
-        .contains("invalid recipe name")
+        .contains("bad.name")
     );
 }
 
@@ -186,7 +186,7 @@ fn rejects_recipe_and_directory_symlinks_escaping_repository() {
                 .output()
                 .unwrap()
         )
-        .contains("outside repository")
+        .contains("escapes repository")
     );
     fs::remove_file(fixture.0.join("recipes/escape.yaml")).unwrap();
     fs::remove_dir(fixture.0.join("recipes")).unwrap();
@@ -199,7 +199,7 @@ fn rejects_recipe_and_directory_symlinks_escaping_repository() {
                 .output()
                 .unwrap()
         )
-        .contains("outside repository")
+        .contains("escapes repository")
     );
 }
 

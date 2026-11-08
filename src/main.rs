@@ -1,62 +1,30 @@
-use std::ffi::OsString;
+use std::path::PathBuf;
 use std::process::ExitCode;
 
-use workstation::repository::{load_recipes, select_repository};
+use clap::{CommandFactory, Parser};
+use workstation::cli::{Cli, Command};
+use workstation::recipe::{discover_recipes, load_recipe, resolve_repository};
 
-const HELP: &str = "Workstation — a recipe-driven dotfiles manager
-
-Usage: wstn [OPTIONS] [COMMAND]
-
-Commands:
-  list            List recipe names and descriptions
-
-Options:
-  -h, --help       Print help
-  -V, --version    Print version
-
-Run wstn list --help for repository selection options.
-Recipe setup actions are not implemented yet.";
-
-const LIST_HELP: &str = "List recipe names and descriptions
-
-Usage: wstn list [--repo <path>]
-
-Options:
-      --repo <path>  Dotfiles repository (default: WSTN_REPO, then ~/.dotfiles)
-  -h, --help         Print help
-
-WSTN_RECIPE does not filter the list.";
-
-fn run() -> Result<(), String> {
-    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
-    match args.first().and_then(|arg| arg.to_str()) {
-        None if args.is_empty() => println!("{HELP}"),
-        Some("-h" | "--help") if args.len() == 1 => println!("{HELP}"),
-        Some("-V" | "--version") if args.len() == 1 => {
-            println!("wstn {}", env!("CARGO_PKG_VERSION"))
-        }
-        Some("list") => {
-            let repository = match &args[1..] {
-                [] => None,
-                [help] if help == "-h" || help == "--help" => {
-                    println!("{LIST_HELP}");
-                    return Ok(());
-                }
-                [option, path]
-                    if option == "--repo"
-                        && !path.is_empty()
-                        && !path.to_string_lossy().starts_with('-') =>
-                {
-                    Some(path.clone())
-                }
-                _ => return Err("expected wstn list [--repo <path>]; run wstn list --help".into()),
-            };
-            let repository = select_repository(
-                repository,
-                std::env::var_os("WSTN_REPO"),
-                std::env::var_os("HOME"),
-            )?;
-            let recipes = load_recipes(&repository)?;
+fn run(cli: Cli) -> Result<(), String> {
+    let Some(command) = cli.command else {
+        Cli::command().print_help().map_err(|e| e.to_string())?;
+        println!();
+        return Ok(());
+    };
+    match command {
+        Command::List(inputs) => {
+            let cwd = std::env::current_dir()
+                .map_err(|e| format!("cannot determine invocation directory: {e}"))?;
+            let home = std::env::var_os("HOME").map(PathBuf::from);
+            let repository = resolve_repository(inputs.repo.as_deref(), &cwd, home.as_deref())?;
+            let names = discover_recipes(&repository)?;
+            // Validate every recipe before producing output, avoiding partial tables.
+            let recipes = names
+                .into_iter()
+                .map(|name| {
+                    load_recipe(repository.clone(), Some(&name)).map(|loaded| (name, loaded.recipe))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
             if recipes.is_empty() {
                 println!("No recipes available in {}.", repository.display());
             } else {
@@ -68,7 +36,6 @@ fn run() -> Result<(), String> {
                     .max(4);
                 println!("{:<width$}  Description", "Name");
                 for (name, recipe) in recipes {
-                    // Keep multiline descriptions within a single table row.
                     let description = recipe
                         .description
                         .unwrap_or_default()
@@ -76,14 +43,21 @@ fn run() -> Result<(), String> {
                     println!("{name:<width$}  {description}");
                 }
             }
+            Ok(())
         }
-        _ => return Err("unsupported command or option; run wstn --help".into()),
+        Command::Describe(inputs) => {
+            let cwd = std::env::current_dir()
+                .map_err(|e| format!("cannot determine invocation directory: {e}"))?;
+            let home = std::env::var_os("HOME").map(PathBuf::from);
+            let repository = resolve_repository(inputs.repo.as_deref(), &cwd, home.as_deref())?;
+            load_recipe(repository, inputs.recipe.as_deref())?;
+            Err("describe rendering is not implemented yet".into())
+        }
     }
-    Ok(())
 }
 
 fn main() -> ExitCode {
-    match run() {
+    match run(Cli::parse()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("error: {error}");
