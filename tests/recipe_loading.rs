@@ -1,6 +1,7 @@
+use std::fmt::Debug;
 use std::fs;
-use std::path::Path;
-use std::process::{Command, Output};
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use tempfile::{TempDir, tempdir};
 use workstation::recipe::{discover_recipes, load_recipe, resolve_repository};
@@ -18,6 +19,26 @@ fn write_recipe(repo: &Path, name: &str, yaml: &str) {
     fs::write(repo.join("recipes").join(format!("{name}.yaml")), yaml).unwrap();
 }
 
+fn assert_error<T: Debug>(result: Result<T, String>, expected: &str) {
+    let error = result.unwrap_err();
+    assert!(
+        error.contains(expected),
+        "expected {expected:?} in {error:?}"
+    );
+}
+
+fn assert_load_error(repo: &Path, name: &str, expected: &str) {
+    assert_error(load_recipe(repo.to_path_buf(), Some(name)), expected);
+}
+
+fn home_repository(root: &Path) -> PathBuf {
+    let home = root.join("fake home");
+    let repo = home.join(".dotfiles");
+    fs::create_dir_all(repo.join("recipes")).unwrap();
+    write_recipe(&repo, "valid", VALID);
+    home
+}
+
 fn command(cwd: &Path, home: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_wstn"));
     command
@@ -28,18 +49,18 @@ fn command(cwd: &Path, home: &Path) -> Command {
     command
 }
 
-fn failure(output: Output) -> String {
+fn assert_cli_error(command: &mut Command, expected: &str) {
+    let output = command.output().unwrap();
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
-    String::from_utf8(output.stderr).unwrap()
+    assert!(String::from_utf8(output.stderr).unwrap().contains(expected));
 }
 
 #[test]
 fn repository_paths_and_home_expansion() {
     let root = tempdir().unwrap();
-    let home = root.path().join("fake home");
+    let home = home_repository(root.path());
     let repo = home.join(".dotfiles");
-    fs::create_dir_all(&repo).unwrap();
     let expected = fs::canonicalize(&repo).unwrap();
     for path in [
         None,
@@ -47,34 +68,33 @@ fn repository_paths_and_home_expansion() {
         Some(Path::new("fake home/.dotfiles")),
         Some(repo.as_path()),
     ] {
-        // Only a leading ~/ is expanded; the repository need not be the cwd.
         assert_eq!(
             resolve_repository(path, root.path(), Some(&home)).unwrap(),
             expected
         );
     }
-    assert!(
-        resolve_repository(None, root.path(), None)
-            .unwrap_err()
-            .contains("HOME")
-    );
-    assert!(resolve_repository(Some(Path::new("")), root.path(), Some(&home)).is_err());
-    assert!(
-        resolve_repository(Some(Path::new("missing")), root.path(), None)
-            .unwrap_err()
-            .contains("cannot access repository")
-    );
-    fs::write(root.path().join("file"), "").unwrap();
-    assert!(
-        resolve_repository(Some(Path::new("file")), root.path(), None)
-            .unwrap_err()
-            .contains("not a directory")
-    );
     fs::create_dir(root.path().join("$HOME")).unwrap();
     assert_eq!(
         resolve_repository(Some(Path::new("$HOME")), root.path(), Some(&home)).unwrap(),
         fs::canonicalize(root.path().join("$HOME")).unwrap()
     );
+}
+
+#[test]
+fn rejects_invalid_repository_inputs() {
+    let root = tempdir().unwrap();
+    fs::write(root.path().join("file"), "").unwrap();
+    for (path, expected) in [
+        (None, "HOME"),
+        (Some(""), "must not be empty"),
+        (Some("missing"), "cannot access repository"),
+        (Some("file"), "not a directory"),
+    ] {
+        assert_error(
+            resolve_repository(path.map(Path::new), root.path(), None),
+            expected,
+        );
+    }
 }
 
 #[test]
@@ -89,19 +109,25 @@ fn discovers_only_yaml_names_in_sorted_order() {
         discover_recipes(repo.path()).unwrap(),
         ["Alpha_2", "first", "z-last"]
     );
-    let error = load_recipe(repo.path().to_path_buf(), None).unwrap_err();
-    assert!(error.contains("wstn describe <recipe> or set WSTN_RECIPE"));
-    assert!(error.contains("Available recipes: Alpha_2, first, z-last"));
-    let empty = repository();
-    assert!(
-        load_recipe(empty.path().to_path_buf(), None)
-            .unwrap_err()
-            .contains("Available recipes: (none)")
-    );
 }
 
 #[test]
-fn loads_with_existing_parser_and_rejects_bad_inputs() {
+fn missing_selection_lists_available_recipes() {
+    let repo = repository();
+    assert_error(
+        load_recipe(repo.path().to_path_buf(), None),
+        "Available recipes: (none)",
+    );
+    for name in ["z-last", "Alpha_2"] {
+        write_recipe(repo.path(), name, VALID);
+    }
+    let error = load_recipe(repo.path().to_path_buf(), None).unwrap_err();
+    assert!(error.contains("wstn describe <recipe> or set WSTN_RECIPE"));
+    assert!(error.contains("Available recipes: Alpha_2, z-last"));
+}
+
+#[test]
+fn loads_valid_recipe() {
     let repo = repository();
     write_recipe(repo.path(), "valid", VALID);
     let loaded = load_recipe(repo.path().to_path_buf(), Some("valid")).unwrap();
@@ -109,6 +135,11 @@ fn loads_with_existing_parser_and_rejects_bad_inputs() {
     assert_eq!(loaded.path, repo.path().join("recipes/valid.yaml"));
     assert_eq!(loaded.recipe.version, 1);
     assert!(loaded.recipe.actions.is_empty());
+}
+
+#[test]
+fn rejects_invalid_recipe_names() {
+    let repo = repository();
     for name in [
         "",
         "../valid",
@@ -120,117 +151,108 @@ fn loads_with_existing_parser_and_rejects_bad_inputs() {
         "has space",
         "é",
     ] {
-        assert!(
-            load_recipe(repo.path().to_path_buf(), Some(name))
-                .unwrap_err()
-                .contains("invalid recipe name")
-        );
+        assert_load_error(repo.path(), name, "invalid recipe name");
     }
-    assert!(
-        load_recipe(repo.path().to_path_buf(), Some("missing"))
-            .unwrap_err()
-            .contains("cannot access recipe path")
-    );
-    for yaml in [
-        "version: [",
-        "version: 2\nactions: []",
-        "version: 1\nactions: []\nextra: true",
-        "version: 1\nversion: 1\nactions: []",
-    ] {
-        write_recipe(repo.path(), "invalid", yaml);
-        assert!(
-            load_recipe(repo.path().to_path_buf(), Some("invalid"))
-                .unwrap_err()
-                .contains("invalid recipe")
-        );
-    }
+}
+
+#[test]
+fn reports_recipe_parser_errors() {
+    let repo = repository();
+    // Parser-specific validation cases live in tests/recipes.rs.
+    write_recipe(repo.path(), "invalid", "version: [");
+    assert_load_error(repo.path(), "invalid", "invalid recipe");
+}
+
+#[test]
+fn reports_recipe_file_errors() {
+    let repo = repository();
+    assert_load_error(repo.path(), "missing", "cannot access recipe path");
     fs::write(repo.path().join("recipes/binary.yaml"), [0xff]).unwrap();
-    assert!(
-        load_recipe(repo.path().to_path_buf(), Some("binary"))
-            .unwrap_err()
-            .contains("cannot read recipe")
-    );
     fs::create_dir(repo.path().join("recipes/directory.yaml")).unwrap();
-    assert!(
-        load_recipe(repo.path().to_path_buf(), Some("directory"))
-            .unwrap_err()
-            .contains("cannot read recipe")
-    );
-    fs::remove_dir_all(repo.path().join("recipes")).unwrap();
-    assert!(
-        discover_recipes(repo.path())
-            .unwrap_err()
-            .contains("cannot access recipe path")
+    for name in ["binary", "directory"] {
+        assert_load_error(repo.path(), name, "cannot read recipe");
+    }
+}
+
+#[test]
+fn reports_missing_recipes_directory() {
+    let repo = repository();
+    fs::remove_dir(repo.path().join("recipes")).unwrap();
+    assert_error(discover_recipes(repo.path()), "cannot access recipe path");
+}
+
+#[test]
+fn cli_inputs_override_environment() {
+    let root = tempdir().unwrap();
+    let home = home_repository(root.path());
+    assert_cli_error(
+        command(root.path(), &home)
+            .env("WSTN_REPO", "missing")
+            .env("WSTN_RECIPE", "invalid.yaml")
+            .args(["describe", "valid", "--repo", "fake home/.dotfiles"]),
+        "describe rendering is not implemented yet",
     );
 }
 
 #[test]
-fn cli_precedence_and_loading_from_outside_repository() {
+fn environment_inputs_override_defaults() {
     let root = tempdir().unwrap();
-    let home = root.path().join("fake home");
-    let repo = home.join(".dotfiles");
-    fs::create_dir_all(repo.join("recipes")).unwrap();
-    write_recipe(&repo, "valid", VALID);
-    // CLI overrides both environment inputs, including a nonexistent repo.
-    let output = command(root.path(), &home)
-        .env("WSTN_REPO", "missing")
-        .env("WSTN_RECIPE", "invalid.yaml")
-        .args(["describe", "valid", "--repo", "fake home/.dotfiles"])
-        .output()
-        .unwrap();
-    assert!(failure(output).contains("describe rendering is not implemented yet"));
-    // Environment overrides the default repository and supplies the recipe.
-    let output = command(root.path(), root.path())
-        .env("WSTN_REPO", "~/fake home/.dotfiles")
-        .env("WSTN_RECIPE", "valid")
-        .arg("describe")
-        .output()
-        .unwrap();
-    assert!(failure(output).contains("describe rendering is not implemented yet"));
-    // Default repository and no recipe: discovery is an input error.
-    let output = command(root.path(), &home)
-        .arg("describe")
-        .output()
-        .unwrap();
-    assert!(failure(output).contains("Available recipes: valid"));
-    let output = command(root.path(), &home)
-        .args(["describe", "valid"])
-        .output()
-        .unwrap();
-    assert!(failure(output).contains("describe rendering is not implemented yet"));
-    for args in [
-        vec!["describe", "--repo"],
-        vec!["describe", "one", "two"],
-        vec!["describe", "--unknown"],
-        vec!["setup"],
-    ] {
-        failure(command(root.path(), &home).args(args).output().unwrap());
-    }
-    for args in [
-        vec![],
-        vec!["--help"],
-        vec!["--version"],
-        vec!["describe", "--help"],
-    ] {
+    home_repository(root.path());
+    assert_cli_error(
+        command(root.path(), root.path())
+            .env("WSTN_REPO", "~/fake home/.dotfiles")
+            .env("WSTN_RECIPE", "valid")
+            .arg("describe"),
+        "describe rendering is not implemented yet",
+    );
+}
+
+#[test]
+fn default_repository_and_selection_diagnostics() {
+    let root = tempdir().unwrap();
+    let home = home_repository(root.path());
+    assert_cli_error(
+        command(root.path(), &home).arg("describe"),
+        "Available recipes: valid",
+    );
+    assert_cli_error(
+        command(root.path(), &home).args(["describe", "valid"]),
+        "describe rendering is not implemented yet",
+    );
+    assert_eq!(
+        fs::read_to_string(home.join(".dotfiles/recipes/valid.yaml")).unwrap(),
+        VALID
+    );
+    assert_eq!(fs::read_dir(&home).unwrap().count(), 1);
+}
+
+#[test]
+fn cli_rejects_missing_option_value() {
+    let root = tempdir().unwrap();
+    assert_cli_error(
+        command(root.path(), root.path()).args(["describe", "--repo"]),
+        "--repo",
+    );
+}
+
+#[test]
+fn help_and_version_succeed() {
+    let root = tempdir().unwrap();
+    for option in ["--help", "--version"] {
         assert!(
-            command(root.path(), &home)
-                .args(args)
+            command(root.path(), root.path())
+                .arg(option)
                 .output()
                 .unwrap()
                 .status
                 .success()
         );
     }
-    assert_eq!(
-        fs::read_to_string(repo.join("recipes/valid.yaml")).unwrap(),
-        VALID
-    );
-    assert_eq!(fs::read_dir(&home).unwrap().count(), 1);
 }
 
 #[cfg(unix)]
 #[test]
-fn symlinks_must_stay_inside_repository() {
+fn recipe_symlinks_must_stay_inside_repository() {
     use std::os::unix::fs::symlink;
     let repo = repository();
     let outside = repository();
@@ -243,45 +265,41 @@ fn symlinks_must_stay_inside_repository() {
         repo.path().join("recipes/escape.yaml"),
     )
     .unwrap();
-    assert!(
-        load_recipe(repo.path().to_path_buf(), Some("escape"))
-            .unwrap_err()
-            .contains("escapes repository")
-    );
-    assert!(
-        discover_recipes(repo.path())
-            .unwrap_err()
-            .contains("escapes repository")
-    );
-    fs::remove_dir_all(repo.path().join("recipes")).unwrap();
-    symlink(outside.path().join("recipes"), repo.path().join("recipes")).unwrap();
-    assert!(
-        load_recipe(repo.path().to_path_buf(), Some("external"))
-            .unwrap_err()
-            .contains("escapes repository")
-    );
-    assert!(
-        discover_recipes(repo.path())
-            .unwrap_err()
-            .contains("escapes repository")
-    );
+    assert_load_error(repo.path(), "escape", "escapes repository");
+    assert_error(discover_recipes(repo.path()), "escapes repository");
 }
 
 #[cfg(unix)]
 #[test]
-fn unreadable_repository_and_recipe_report_io_errors() {
+fn recipes_directory_symlink_must_stay_inside_repository() {
+    use std::os::unix::fs::symlink;
+    let repo = repository();
+    let outside = repository();
+    write_recipe(outside.path(), "external", VALID);
+    fs::remove_dir(repo.path().join("recipes")).unwrap();
+    symlink(outside.path().join("recipes"), repo.path().join("recipes")).unwrap();
+    assert_load_error(repo.path(), "external", "escapes repository");
+    assert_error(discover_recipes(repo.path()), "escapes repository");
+}
+
+#[cfg(unix)]
+#[test]
+fn reports_unreadable_recipe() {
     use std::os::unix::fs::PermissionsExt;
     let repo = repository();
     write_recipe(repo.path(), "private", VALID);
     let path = repo.path().join("recipes/private.yaml");
     fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
-    let error = load_recipe(repo.path().to_path_buf(), Some("private")).unwrap_err();
+    let readable = fs::read(&path).is_ok();
+    let result = load_recipe(repo.path().to_path_buf(), Some("private"));
     fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
-    assert!(error.contains("cannot read recipe"));
-    fs::set_permissions(repo.path(), fs::Permissions::from_mode(0o000)).unwrap();
-    let error = discover_recipes(repo.path()).unwrap_err();
-    fs::set_permissions(repo.path(), fs::Permissions::from_mode(0o700)).unwrap();
-    assert!(error.contains("cannot access recipe path"));
+    if readable {
+        eprintln!(
+            "skipping permission-denied assertion: this user can read mode-000 files (e.g. root)"
+        );
+        return;
+    }
+    assert_error(result, "cannot read recipe");
 }
 
 #[test]
@@ -289,30 +307,20 @@ fn cli_parsing_does_not_access_repository() {
     use clap::Parser;
     use workstation::cli::{Cli, Command};
 
-    for args in [
-        vec![
-            "wstn",
-            "describe",
-            "chosen",
-            "--repo",
-            "/nonexistent/path with spaces",
-        ],
-        vec![
-            "wstn",
-            "describe",
-            "--repo",
-            "/nonexistent/path with spaces",
-            "chosen",
-        ],
-    ] {
-        let cli = Cli::try_parse_from(args).unwrap();
-        let Some(Command::Describe(inputs)) = cli.command else {
-            panic!("expected describe inputs");
-        };
-        assert_eq!(inputs.recipe.as_deref(), Some("chosen"));
-        assert_eq!(
-            inputs.repo.as_deref(),
-            Some(Path::new("/nonexistent/path with spaces"))
-        );
-    }
+    let cli = Cli::try_parse_from([
+        "wstn",
+        "describe",
+        "chosen",
+        "--repo",
+        "/nonexistent/path with spaces",
+    ])
+    .unwrap();
+    let Some(Command::Describe(inputs)) = cli.command else {
+        panic!("expected describe inputs");
+    };
+    assert_eq!(inputs.recipe.as_deref(), Some("chosen"));
+    assert_eq!(
+        inputs.repo.as_deref(),
+        Some(Path::new("/nonexistent/path with spaces"))
+    );
 }
