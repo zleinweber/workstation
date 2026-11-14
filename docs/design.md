@@ -84,12 +84,6 @@ Never log environment values that may contain credentials.
 
 ### Resolution and validation
 
-`list` is implemented. It uses the repository selection below, treats an empty
-`recipes/` directory as no recipes, and validates all discovered recipes
-before printing a table. Other extensions and nested directories are ignored.
-Invalid names are ignored during discovery. Repository escapes and
-loading/validation errors fail with exit code 2 and diagnostics on stderr. Multiline descriptions display on one row.
-
 Recipe names match `[A-Za-z0-9_-]+` and resolve to `recipes/<name>.yaml` by default.
 Reject path traversal and ambiguous extensions. Resolve relative repository paths
 against the invocation directory; resolve action sources and script working
