@@ -56,6 +56,13 @@ fn assert_cli_error(command: &mut Command, expected: &str) {
     assert!(String::from_utf8(output.stderr).unwrap().contains(expected));
 }
 
+fn assert_empty_description(command: &mut Command) {
+    let output = command.output().unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    assert_eq!(output.stdout, b"No actions.\n");
+}
+
 #[test]
 fn repository_paths_and_home_expansion() {
     let root = tempdir().unwrap();
@@ -185,12 +192,11 @@ fn reports_missing_recipes_directory() {
 fn cli_inputs_override_environment() {
     let root = tempdir().unwrap();
     let home = home_repository(root.path());
-    assert_cli_error(
+    assert_empty_description(
         command(root.path(), &home)
             .env("WSTN_REPO", "missing")
             .env("WSTN_RECIPE", "invalid.yaml")
             .args(["describe", "valid", "--repo", "fake home/.dotfiles"]),
-        "describe rendering is not implemented yet",
     );
 }
 
@@ -198,12 +204,11 @@ fn cli_inputs_override_environment() {
 fn environment_inputs_override_defaults() {
     let root = tempdir().unwrap();
     home_repository(root.path());
-    assert_cli_error(
+    assert_empty_description(
         command(root.path(), root.path())
             .env("WSTN_REPO", "~/fake home/.dotfiles")
             .env("WSTN_RECIPE", "valid")
             .arg("describe"),
-        "describe rendering is not implemented yet",
     );
 }
 
@@ -215,10 +220,7 @@ fn default_repository_and_selection_diagnostics() {
         command(root.path(), &home).arg("describe"),
         "Available recipes: valid",
     );
-    assert_cli_error(
-        command(root.path(), &home).args(["describe", "valid"]),
-        "describe rendering is not implemented yet",
-    );
+    assert_empty_description(command(root.path(), &home).args(["describe", "valid"]));
     assert_eq!(
         fs::read_to_string(home.join(".dotfiles/recipes/valid.yaml")).unwrap(),
         VALID

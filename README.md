@@ -2,12 +2,10 @@
 
 A recipe-driven dotfiles manager with basic configuration management, written in Rust.
 
-**Status: initial implementation.** Help, version, and `list` output work. An internal
-V1 YAML parser validates empty recipes and link action fields; see
-[example recipes](examples/recipes/). `describe` loads and validates a selected
-recipe, but description rendering, linking, downloads, and script execution are
-not implemented yet. Until rendering is available, even a valid recipe returns
-exit code 2 with an explicit diagnostic.
+**Status: initial implementation.** Help, version, `list`, and `describe` work.
+The V1 YAML parser supports empty recipes and link action fields; see
+[example recipes](examples/recipes/). Linking, setup/dry-run, downloads, and script
+execution are not implemented yet.
 
 Workstation will take a local dotfiles repository and a named YAML recipe, explain
 the recipe, and apply its actions. Configuration files and personal scripts stay
@@ -33,12 +31,29 @@ repository-owned symlinks must resolve inside the repository. No actions execute
 An empty `recipes/` directory reports no recipes. Invalid repositories
 or recipes produce diagnostics on stderr and exit code 2, without a partial table.
 
+## Describe a recipe
+
+```sh
+wstn describe macos --repo ~/.dotfiles
+```
+
+`describe` prints the optional description followed by actions in recipe order,
+including each action's ID, type, resolved source and target paths, and effective
+conflict policy (`error` by default). Empty recipes print `No actions.`
+
+Sources must be repository-relative, exist, and resolve inside the repository
+after following symlinks. Targets must be absolute after expanding a leading
+`~/` using `HOME`; no other shell expansion is performed. Targets need not exist.
+Describe validates all actions before printing to stdout and returns 0 on success.
+Invalid inputs produce diagnostics on stderr and exit code 2, without partial
+output. It does not inspect bundle contents or target conflicts, execute actions,
+or modify the repository or targets.
+
 ## Intended experience
 
 The following commands describe the planned interface, not current functionality:
 
 ```sh
-wstn describe macos --repo ~/.dotfiles
 wstn setup macos --repo ~/.dotfiles
 wstn setup codespaces --dry-run
 ```

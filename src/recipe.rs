@@ -4,6 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::config::{Recipe, parse_recipe};
+use crate::context::{contained_path, expand_home};
 
 #[derive(Debug)]
 pub struct LoadedRecipe {
@@ -21,12 +22,7 @@ pub fn resolve_repository(
     if input.as_os_str().is_empty() {
         return Err("repository path must not be empty".into());
     }
-    let expanded = match input.strip_prefix("~/") {
-        Ok(relative) => home
-            .ok_or("HOME is required to expand ~/ in the repository path")?
-            .join(relative),
-        Err(_) => input.to_path_buf(),
-    };
+    let expanded = expand_home(input, home)?;
     let path = cwd.join(expanded);
     let repository = fs::canonicalize(&path)
         .map_err(|e| format!("cannot access repository {}: {e}", path.display()))?;
@@ -43,22 +39,10 @@ fn valid_name(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-'))
 }
 
-fn contained_path(repository: &Path, path: &Path) -> Result<PathBuf, String> {
-    let resolved = fs::canonicalize(path)
-        .map_err(|e| format!("cannot access recipe path {}: {e}", path.display()))?;
-    if !resolved.starts_with(repository) {
-        return Err(format!(
-            "recipe path escapes repository: {}",
-            path.display()
-        ));
-    }
-    Ok(resolved)
-}
-
 /// List names only; recipe contents are validated when selected.
 /// `repository` must be the canonical directory returned by `resolve_repository`.
 pub fn discover_recipes(repository: &Path) -> Result<Vec<String>, String> {
-    let directory = contained_path(repository, &repository.join("recipes"))?;
+    let directory = contained_path(repository, &repository.join("recipes"), "recipe")?;
     let entries = fs::read_dir(&directory)
         .map_err(|e| format!("cannot read recipes directory {}: {e}", directory.display()))?;
     let mut names = Vec::new();
@@ -69,7 +53,7 @@ pub fn discover_recipes(repository: &Path) -> Result<Vec<String>, String> {
             continue;
         };
         if valid_name(name) && entry.path().is_file() {
-            contained_path(repository, &entry.path())?;
+            contained_path(repository, &entry.path(), "recipe")?;
             names.push(name.to_owned());
         }
     }
@@ -97,6 +81,7 @@ pub fn load_recipe(repository: PathBuf, name: Option<&str>) -> Result<LoadedReci
     let path = contained_path(
         &repository,
         &repository.join("recipes").join(format!("{name}.yaml")),
+        "recipe",
     )?;
     let yaml = fs::read_to_string(&path)
         .map_err(|e| format!("cannot read recipe {}: {e}", path.display()))?;
