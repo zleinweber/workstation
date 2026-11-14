@@ -67,6 +67,7 @@ Platform auto-selection belongs in the user's wrapper initially.
 
 | Command | Behavior |
 | --- | --- |
+| `list` | Discover direct `recipes/<name>.yaml` files in name order and print Name/Description columns using the V1 parser. Ignore `WSTN_RECIPE`; omitted descriptions are blank. |
 | `describe` | Validate the recipe; print its description, ordered actions, conditions, and resolved paths. |
 | `setup --dry-run` | Also inspect local state and report planned operations and conflicts. |
 | `setup` | Apply actions sequentially and summarize the result. |

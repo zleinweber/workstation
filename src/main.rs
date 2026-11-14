@@ -3,7 +3,7 @@ use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser};
 use workstation::cli::{Cli, Command};
-use workstation::recipe::{load_recipe, resolve_repository};
+use workstation::recipe::{discover_recipes, load_recipe, resolve_repository};
 
 fn run(cli: Cli) -> Result<(), String> {
     let Some(command) = cli.command else {
@@ -12,6 +12,39 @@ fn run(cli: Cli) -> Result<(), String> {
         return Ok(());
     };
     match command {
+        Command::List(inputs) => {
+            let cwd = std::env::current_dir()
+                .map_err(|e| format!("cannot determine invocation directory: {e}"))?;
+            let home = std::env::var_os("HOME").map(PathBuf::from);
+            let repository = resolve_repository(inputs.repo.as_deref(), &cwd, home.as_deref())?;
+            let names = discover_recipes(&repository)?;
+            // Validate every recipe before producing output, avoiding partial tables.
+            let recipes = names
+                .into_iter()
+                .map(|name| {
+                    load_recipe(repository.clone(), Some(&name)).map(|loaded| (name, loaded.recipe))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            if recipes.is_empty() {
+                println!("No recipes available in {}.", repository.display());
+            } else {
+                let width = recipes
+                    .iter()
+                    .map(|(name, _)| name.len())
+                    .max()
+                    .unwrap_or(0)
+                    .max(4);
+                println!("{:<width$}  Description", "Name");
+                for (name, recipe) in recipes {
+                    let description = recipe
+                        .description
+                        .unwrap_or_default()
+                        .replace(['\n', '\r', '\t'], " ");
+                    println!("{name:<width$}  {description}");
+                }
+            }
+            Ok(())
+        }
         Command::Describe(inputs) => {
             let cwd = std::env::current_dir()
                 .map_err(|e| format!("cannot determine invocation directory: {e}"))?;

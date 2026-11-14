@@ -13,6 +13,8 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// List recipe names and descriptions
+    List(RepositoryInputs),
     /// Load and validate a recipe (description rendering is not implemented yet)
     Describe(RecipeInputs),
 }
@@ -23,6 +25,13 @@ pub struct RecipeInputs {
     #[arg(env = "WSTN_RECIPE", hide_env_values = true)]
     pub recipe: Option<String>,
 
+    /// Dotfiles repository (defaults to ~/.dotfiles)
+    #[arg(long, env = "WSTN_REPO", hide_env_values = true)]
+    pub repo: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct RepositoryInputs {
     /// Dotfiles repository (defaults to ~/.dotfiles)
     #[arg(long, env = "WSTN_REPO", hide_env_values = true)]
     pub repo: Option<PathBuf>,

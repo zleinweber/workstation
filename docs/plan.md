@@ -17,6 +17,10 @@ Publication and release binaries are separate from local scaffolding.
 
 ## 1 Recipes and describe
 
+Recipe discovery and `list` are implemented, including repository precedence,
+name-sorted descriptions, parser validation, and isolated CLI tests. Describe
+rendering remains planned; its input selection and loading are implemented.
+
 - Add Clap and choose a maintained YAML parser after checking duplicate-key behavior.
 - Implement repository/recipe selection using CLI arguments, then `WSTN_`
   environment variables, then built-in defaults.
