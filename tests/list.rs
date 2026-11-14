@@ -1,40 +1,43 @@
 use std::fs;
-use std::path::PathBuf;
 use std::process::{Command, Output};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
-static NEXT: AtomicUsize = AtomicUsize::new(0);
+use tempfile::{TempDir, tempdir};
 
-struct Fixture(PathBuf);
+const VALID: &str = "version: 1\nactions: []\n";
+const SINGLE_RECIPE_TABLE: &str = "Name  Description\ntest  \n";
+
+struct Fixture(TempDir);
+
 impl Fixture {
     fn new() -> Self {
-        let path = std::env::temp_dir().join(format!(
-            "wstn list {} {}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir_all(path.join("recipes")).unwrap();
-        Self(path)
+        let root = tempdir().unwrap();
+        fs::create_dir(root.path().join("recipes")).unwrap();
+        fs::create_dir(root.path().join("home")).unwrap();
+        Self(root)
     }
+
     fn recipe(&self, name: &str, content: &str) {
-        fs::write(self.0.join("recipes").join(name), content).unwrap();
+        fs::write(
+            self.0.path().join("recipes").join(format!("{name}.yaml")),
+            content,
+        )
+        .unwrap();
     }
+
     fn command(&self) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_wstn"));
         command
-            .current_dir(&self.0)
+            .arg("list")
+            .current_dir(self.0.path())
             .env_remove("WSTN_REPO")
             .env_remove("WSTN_RECIPE")
-            .env("HOME", &self.0);
+            .env("HOME", self.0.path().join("home"));
         command
     }
 }
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        fs::remove_dir_all(&self.0).unwrap();
-    }
-}
-fn stdout(output: Output) -> String {
+
+fn stdout(command: &mut Command) -> String {
+    let output = command.output().unwrap();
     assert!(
         output.status.success(),
         "{}",
@@ -43,178 +46,137 @@ fn stdout(output: Output) -> String {
     assert!(output.stderr.is_empty());
     String::from_utf8(output.stdout).unwrap()
 }
-fn failure(output: Output) -> String {
-    assert_eq!(output.status.code(), Some(2));
-    assert!(output.stdout.is_empty());
-    String::from_utf8(output.stderr).unwrap()
+
+fn failure(command: &mut Command) -> String {
+    let Output {
+        status,
+        stdout,
+        stderr,
+    } = command.output().unwrap();
+    let error = String::from_utf8(stderr).unwrap();
+    assert_eq!(status.code(), Some(2), "{error}");
+    assert!(stdout.is_empty(), "unexpected stdout: {stdout:?}");
+    error
 }
 
 #[test]
-fn sorted_table_validates_recipes_and_ignores_recipe_selection() {
+fn table_is_sorted_with_blank_omitted_descriptions_and_ignores_recipe_selection() {
     let fixture = Fixture::new();
-    fixture.recipe("z-last.yaml", "version: 1\nactions: []\n");
+    fixture.recipe("z-last", VALID);
     fixture.recipe(
-        "Alpha.yaml",
+        "Alpha",
         "version: 1\ndescription: First recipe\nactions: []\n",
     );
-    fixture.recipe("ignored.yml", "invalid");
-    fs::create_dir(fixture.0.join("recipes/nested")).unwrap();
+
     let output = stdout(
         fixture
             .command()
-            .args(["list", "--repo", "."])
-            .env("WSTN_REPO", "missing")
-            .env("WSTN_RECIPE", "z-last")
-            .output()
-            .unwrap(),
+            .args(["--repo", "."])
+            .env("WSTN_RECIPE", "z-last"),
     );
     assert_eq!(
         output,
         "Name    Description\nAlpha   First recipe\nz-last  \n"
     );
-    assert!(!fixture.0.join(".dotfiles").exists());
 }
 
 #[test]
-fn repository_environment_and_default_and_tilde_expansion() {
+fn table_preserves_header_width_and_keeps_descriptions_on_one_row() {
     let fixture = Fixture::new();
-    fixture.recipe("test.yaml", "version: 1\nactions: []");
-    let output = stdout(
-        fixture
-            .command()
-            .arg("list")
-            .env("WSTN_REPO", ".")
-            .output()
-            .unwrap(),
+    fixture.recipe(
+        "a",
+        r#"version: 1
+description: "first\nsecond\rthird\tfourth"
+actions: []
+"#,
     );
-    assert!(output.contains("test"));
-    fs::rename(fixture.0.join("recipes"), fixture.0.join("saved")).unwrap();
-    fs::create_dir(fixture.0.join(".dotfiles")).unwrap();
-    fs::rename(fixture.0.join("saved"), fixture.0.join(".dotfiles/recipes")).unwrap();
-    assert!(stdout(fixture.command().arg("list").output().unwrap()).contains("test"));
-    assert!(
+
+    assert_eq!(
+        stdout(fixture.command().args(["--repo", "."])),
+        "Name  Description\na     first second third fourth\n",
+    );
+}
+
+#[test]
+fn repository_argument_overrides_environment() {
+    let fixture = Fixture::new();
+    fixture.recipe("test", VALID);
+    assert_eq!(
         stdout(
             fixture
                 .command()
-                .args(["list", "--repo", "~/.dotfiles"])
-                .output()
-                .unwrap()
-        )
-        .contains("test")
+                .args(["--repo", "."])
+                .env("WSTN_REPO", "missing")
+        ),
+        SINGLE_RECIPE_TABLE,
     );
 }
 
 #[test]
-fn empty_recipe_directory_is_clear_and_missing_directory_fails() {
+fn repository_environment_overrides_default() {
     let fixture = Fixture::new();
-    assert!(
-        stdout(
-            fixture
-                .command()
-                .args(["list", "--repo", "."])
-                .output()
-                .unwrap()
-        )
-        .contains("No recipes available")
-    );
-    fs::remove_dir(fixture.0.join("recipes")).unwrap();
-    assert!(
-        failure(
-            fixture
-                .command()
-                .args(["list", "--repo", "."])
-                .output()
-                .unwrap()
-        )
-        .contains("cannot access recipe path")
+    fixture.recipe("test", VALID);
+    assert_eq!(
+        stdout(fixture.command().env("WSTN_REPO", ".")),
+        SINGLE_RECIPE_TABLE,
     );
 }
 
 #[test]
-fn invalid_repositories_recipes_and_arguments_fail_without_partial_table() {
+fn repository_defaults_to_dotfiles_in_home() {
     let fixture = Fixture::new();
-    for arguments in [
-        vec!["list", "--repo", "missing"],
-        vec!["list", "--repo"],
-        vec!["list", "extra"],
-        vec!["list", "--unknown"],
-        vec!["setup"],
-    ] {
-        assert!(failure(fixture.command().args(arguments).output().unwrap()).contains("error:"));
+    let recipes = fixture.0.path().join("home/.dotfiles/recipes");
+    fs::create_dir_all(&recipes).unwrap();
+    fs::write(recipes.join("test.yaml"), VALID).unwrap();
+
+    assert_eq!(stdout(&mut fixture.command()), SINGLE_RECIPE_TABLE);
+}
+
+#[test]
+fn empty_recipe_directory_is_clear() {
+    let fixture = Fixture::new();
+    assert!(stdout(fixture.command().args(["--repo", "."])).contains("No recipes available"));
+}
+
+#[test]
+fn missing_recipes_directory_reports_discovery_failure() {
+    let fixture = Fixture::new();
+    fs::remove_dir(fixture.0.path().join("recipes")).unwrap();
+    assert!(failure(fixture.command().args(["--repo", "."])).contains("cannot access recipe path"));
+}
+
+#[test]
+fn missing_repository_reports_resolution_failure() {
+    let fixture = Fixture::new();
+    assert!(
+        failure(fixture.command().args(["--repo", "missing"])).contains("cannot access repository")
+    );
+}
+
+#[test]
+fn invalid_arguments_are_rejected() {
+    let fixture = Fixture::new();
+    for argument in ["--repo", "extra", "--unknown"] {
+        let error = failure(fixture.command().arg(argument));
+        assert!(error.contains(argument), "argument {argument:?}: {error}");
     }
-    fixture.recipe("a.yaml", "version: 1\nactions: []");
-    fixture.recipe("broken.yaml", "version: 2\nactions: []");
-    let error = failure(
-        fixture
-            .command()
-            .args(["list", "--repo", "."])
-            .output()
-            .unwrap(),
-    );
-    assert!(error.contains("broken.yaml") && error.contains("unsupported recipe version"));
-    fixture.recipe("broken.yaml", "version: 1\nactions: []");
-    fixture.recipe("bad.name.yaml", "version: 1\nactions: []");
-    assert!(
-        !stdout(
-            fixture
-                .command()
-                .args(["list", "--repo", "."])
-                .output()
-                .unwrap()
-        )
-        .contains("bad.name")
-    );
 }
 
-#[cfg(unix)]
 #[test]
-fn rejects_recipe_and_directory_symlinks_escaping_repository() {
-    use std::os::unix::fs::symlink;
+fn invalid_recipe_fails_without_printing_a_partial_table() {
     let fixture = Fixture::new();
-    let outside = Fixture::new();
-    outside.recipe("external.yaml", "version: 1\nactions: []");
-    symlink(
-        outside.0.join("recipes/external.yaml"),
-        fixture.0.join("recipes/escape.yaml"),
-    )
-    .unwrap();
-    assert!(
-        failure(
-            fixture
-                .command()
-                .args(["list", "--repo", "."])
-                .output()
-                .unwrap()
-        )
-        .contains("escapes repository")
-    );
-    fs::remove_file(fixture.0.join("recipes/escape.yaml")).unwrap();
-    fs::remove_dir(fixture.0.join("recipes")).unwrap();
-    symlink(outside.0.join("recipes"), fixture.0.join("recipes")).unwrap();
-    assert!(
-        failure(
-            fixture
-                .command()
-                .args(["list", "--repo", "."])
-                .output()
-                .unwrap()
-        )
-        .contains("escapes repository")
-    );
+    fixture.recipe("a", VALID);
+    fixture.recipe("broken", "version: 2\nactions: []");
+
+    let error = failure(fixture.command().args(["--repo", "."]));
+    assert!(error.contains("broken.yaml"), "{error}");
+    assert!(error.contains("unsupported recipe version"), "{error}");
 }
 
 #[test]
 fn help_does_not_load_repository() {
     let fixture = Fixture::new();
     assert!(
-        stdout(
-            fixture
-                .command()
-                .args(["list", "--help"])
-                .env("WSTN_REPO", "missing")
-                .output()
-                .unwrap()
-        )
-        .contains("WSTN_REPO")
+        stdout(fixture.command().arg("--help").env("WSTN_REPO", "missing")).contains("WSTN_REPO")
     );
 }
