@@ -3,6 +3,8 @@ use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser};
 use workstation::cli::{Cli, Command};
+use workstation::config::Conflict;
+use workstation::plan::{ResolvedAction, resolve_actions};
 use workstation::recipe::{discover_recipes, load_recipe, resolve_repository};
 
 fn run(cli: Cli) -> Result<(), String> {
@@ -50,8 +52,34 @@ fn run(cli: Cli) -> Result<(), String> {
                 .map_err(|e| format!("cannot determine invocation directory: {e}"))?;
             let home = std::env::var_os("HOME").map(PathBuf::from);
             let repository = resolve_repository(inputs.repo.as_deref(), &cwd, home.as_deref())?;
-            load_recipe(repository, inputs.recipe.as_deref())?;
-            Err("describe rendering is not implemented yet".into())
+            let loaded = load_recipe(repository, inputs.recipe.as_deref())?;
+            let actions = resolve_actions(&loaded, home.as_deref())?;
+            if let Some(description) = &loaded.recipe.description {
+                println!("{description}");
+            }
+            if actions.is_empty() {
+                println!("No actions.");
+            }
+            for action in actions {
+                match action {
+                    ResolvedAction::Link {
+                        id,
+                        source,
+                        target,
+                        conflict,
+                    } => {
+                        let conflict = match conflict {
+                            Conflict::Error => "error",
+                            Conflict::Backup => "backup",
+                        };
+                        println!("{id} (link)");
+                        println!("  source: {}", source.display());
+                        println!("  target: {}", target.display());
+                        println!("  conflict: {conflict}");
+                    }
+                }
+            }
+            Ok(())
         }
     }
 }

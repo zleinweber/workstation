@@ -15,7 +15,7 @@ pub struct Cli {
 pub enum Command {
     /// List recipe names and descriptions
     List(RepositoryInputs),
-    /// Load and validate a recipe (description rendering is not implemented yet)
+    /// Describe a recipe's ordered actions and resolved paths
     Describe(RecipeInputs),
 }
 

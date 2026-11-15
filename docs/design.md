@@ -93,6 +93,12 @@ that repository after symlink resolution.
 Target paths must be absolute after expanding a leading `~/`. Perform no other
 shell expansion or substitution.
 
+The current link-only `describe` resolves existing repository-relative sources
+to canonical paths inside the repository. It expands targets without requiring
+them to exist or inspecting their state. Bundle traversal and entry validation
+belong to the link execution milestone; describe currently validates action paths
+only, including symlink containment.
+
 Recipes contain ordered actions. The initial V1 definition is:
 
 | Field | Type | Required | Validation |
